@@ -32,7 +32,11 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 
 > [!NOTE]
 > If using Hyprland, add the following rule:
-> `windowrule = match:title Kasasa, no_blur on, border_size 0, no_shadow on`
+> `windowrule = match:title Kasasa, no_blur on, border_size 0, no_shadow on, no_anim on`
+>
+> `no_anim on` is important for scroll-zoom: otherwise Hyprland smoothly
+> animates the window border while the app has already changed the screenshot
+> size, so the two look out of sync.
 
 > [!IMPORTANT]
 > On GNOME versions < 46, a dialog will appear to set up and take the screenshot,

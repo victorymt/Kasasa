@@ -19,6 +19,7 @@
  */
 
 #include "kasasa-screenshot.h"
+#include "kasasa-image.h"
 #include "kasasa-window.h"
 
 struct _KasasaScreenshot
@@ -60,77 +61,11 @@ kasasa_screenshot_get_dimensions (KasasaContent *content,
   *width = self->image_width;
 }
 
-// Returns FALSE if not trashed
-static gboolean
-search_and_trash_image (const gchar *directory_name,
-                        const gchar *file_name)
-{
-  g_autoptr (GFile) directory = NULL;
-  g_autoptr (GError) error = NULL;
-  g_autoptr (GFileEnumerator) enumerator = NULL;
-  GFileInfo *info = NULL;
-
-  // Get the pictures directory
-  directory = g_file_new_for_path (directory_name);
-
-  enumerator = g_file_enumerate_children (directory,                            // directory
-                                          G_FILE_ATTRIBUTE_STANDARD_NAME,       // attributes
-                                          G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,  // flags
-                                          NULL,                                 // cancellable
-                                          &error);                              // error
-
-  if (error != NULL)
-    {
-      g_warning ("Error while deleting screenshot - couldn't enumerate directory: %s",
-                 error->message);
-      return FALSE;
-    }
-
-  while ((info = g_file_enumerator_next_file (enumerator, NULL, NULL)) != NULL)
-    {
-      const gchar *name = g_file_info_get_name (info);  // no need to free
-      GFile *file = g_file_get_child (directory, name);
-
-      if (g_file_info_get_file_type (info) == G_FILE_TYPE_DIRECTORY)
-        {
-          // Recursively search in subdirectories
-          g_autofree gchar *path = g_file_get_path (file);
-          g_debug ("Searching on %s ...", path);
-
-          // If returned TRUE, finalize the loop returning TRUE
-          if (search_and_trash_image (path, file_name) == TRUE)
-            return TRUE;
-        }
-      else if (g_strcmp0 (name, file_name) == 0)
-        {
-          // Trash the image
-          g_autofree gchar *parent_path = g_file_get_path (file);
-          g_autoptr (GFile) trash_file = g_file_new_for_path (parent_path);
-
-          g_file_trash (trash_file, NULL, &error);
-          if (error != NULL)
-            g_warning ("Error while deleting screenshot: %s", error->message);
-
-          // Finilize
-          g_debug ("Trashed %s", parent_path);
-          g_clear_object (&info);
-          g_object_unref (file);
-          return TRUE;
-        }
-
-      g_object_unref (info);
-      g_object_unref (file);
-    }
-
-  g_clear_object (&info);
-  return FALSE;
-}
-
 static void
 kasasa_screenshot_finish (KasasaContent *content)
 {
   KasasaWindow *window = NULL;
-  g_autofree gchar *base_name = NULL;
+  g_autoptr (GError) error = NULL;
   KasasaScreenshot *self = NULL;
 
   g_return_if_fail (KASASA_IS_SCREENSHOT (content));
@@ -145,52 +80,51 @@ kasasa_screenshot_finish (KasasaContent *content)
 
   g_debug ("Auto trashing screenshot...");
 
-  // Get the image base name
-  if (self->file == NULL
-      || (base_name = g_file_get_basename (self->file)) == NULL)
+  if (self->file == NULL)
     {
       g_warning ("Error while deleting screenshot: no reference to image");
       return;
     }
 
-  if (search_and_trash_image (g_get_user_special_dir (G_USER_DIRECTORY_PICTURES),
-                              base_name))
-    gtk_picture_set_file (self->picture, NULL);
+  if (!g_file_trash (self->file, NULL, &error))
+    {
+      g_warning ("Error while deleting screenshot: %s", error->message);
+      return;
+    }
 
-  return;
+  gtk_picture_set_file (self->picture, NULL);
 }
 
 // Load the screenshot to the GtkPicture widget
-void
+gboolean
 kasasa_screenshot_load_screenshot (KasasaScreenshot *self,
-                                   const gchar      *uri)
+                                   const gchar      *uri,
+                                   GError          **error)
 {
-  KasasaWindow *window = NULL;
-  g_autoptr (GError) error = NULL;
+  g_autoptr (GFile) new_file = NULL;
   g_autoptr (GdkTexture) texture = NULL;
-  gint height, width;
 
-  g_return_if_fail (KASASA_IS_SCREENSHOT (self) || uri == NULL);
+  g_return_val_if_fail (KASASA_IS_SCREENSHOT (self), FALSE);
+  g_return_val_if_fail (uri != NULL, FALSE);
 
-  if (self->file != NULL)
+  if (!kasasa_image_load_uri (uri, &new_file, &texture, error))
+    return FALSE;
+
+  // Only finish/trash the old image after its replacement has been validated.
+  if (self->file != NULL && !g_file_equal (self->file, new_file))
     kasasa_screenshot_finish (KASASA_CONTENT (self));
 
-  self->file = g_file_new_for_uri (uri);
+  g_set_object (&self->file, new_file);
 
-  // Save image information
-  texture = gdk_texture_new_from_file (self->file, &error);
   self->image_height = gdk_texture_get_height (texture);
   self->image_width = gdk_texture_get_width (texture);
 
-  // Explicity unset the previous image: for some reason the old image doesn't get
+  // Explicitly unset the previous image: for some reason the old image doesn't get
   // replaced if the new image have the same size
   gtk_picture_set_file (self->picture, NULL);
   gtk_picture_set_file (self->picture, self->file);
 
-  // Compute new dimensions and resize the window
-  kasasa_content_get_dimensions (KASASA_CONTENT (self), &height, &width);
-  window = kasasa_window_get_window_reference (GTK_WIDGET (self));
-  kasasa_window_resize_window_scaling (window, height, width);
+  return TRUE;
 }
 
 static void
@@ -198,8 +132,7 @@ kasasa_screenshot_dispose (GObject *object)
 {
   KasasaScreenshot *self = KASASA_SCREENSHOT (object);
 
-  if (self->file != NULL)
-    g_object_unref (self->file);
+  g_clear_object (&self->file);
 
   G_OBJECT_CLASS (kasasa_screenshot_parent_class)->dispose (object);
 }
@@ -211,20 +144,73 @@ kasasa_screenshot_content_interface_init (KasasaContentInterface *iface)
   iface->finish = kasasa_screenshot_finish;
 }
 
+/*
+ * Window default-size is the only size source. We deliberately report 0×0 so
+ * GtkPicture's texture pixels and AdwCarousel cannot race the window frame
+ * (that race showed up as a gap on the right that then jumped shut).
+ */
+static void
+kasasa_screenshot_measure (GtkWidget      *widget,
+                           GtkOrientation  orientation,
+                           int             for_size,
+                           int            *minimum,
+                           int            *natural,
+                           int            *minimum_baseline,
+                           int            *natural_baseline)
+{
+  *minimum = 0;
+  *natural = 0;
+  *minimum_baseline = -1;
+  *natural_baseline = -1;
+}
+
+static void
+kasasa_screenshot_size_allocate (GtkWidget *widget,
+                                 int        width,
+                                 int        height,
+                                 int        baseline)
+{
+  GtkWidget *child = adw_bin_get_child (ADW_BIN (widget));
+
+  if (child != NULL)
+    gtk_widget_allocate (child, width, height, baseline, NULL);
+}
+
 static void
 kasasa_screenshot_class_init (KasasaScreenshotClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
+  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
   object_class->dispose = kasasa_screenshot_dispose;
+
+  widget_class->measure = kasasa_screenshot_measure;
+  widget_class->size_allocate = kasasa_screenshot_size_allocate;
 }
 
 static void
 kasasa_screenshot_init (KasasaScreenshot *self)
 {
   self->picture = GTK_PICTURE (gtk_picture_new ());
+
+  /* FILL: window is already aspect-fitted to the image, so this paints edge
+   * to edge with the frame (no letterbox gap). */
+  gtk_picture_set_content_fit (self->picture, GTK_CONTENT_FIT_FILL);
+  gtk_picture_set_can_shrink (self->picture, TRUE);
+  gtk_widget_set_hexpand (GTK_WIDGET (self->picture), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self->picture), TRUE);
+  gtk_widget_set_halign (GTK_WIDGET (self->picture), GTK_ALIGN_FILL);
+  gtk_widget_set_valign (GTK_WIDGET (self->picture), GTK_ALIGN_FILL);
+
   adw_bin_set_child (ADW_BIN (self), GTK_WIDGET (self->picture));
-  gtk_widget_set_valign (GTK_WIDGET (self), GTK_ALIGN_END);
+
+  /* Parent construction may install a bin layout manager — remove it. */
+  gtk_widget_set_layout_manager (GTK_WIDGET (self), NULL);
+
+  gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
+  gtk_widget_set_halign (GTK_WIDGET (self), GTK_ALIGN_FILL);
+  gtk_widget_set_valign (GTK_WIDGET (self), GTK_ALIGN_FILL);
 }
 
 KasasaScreenshot *
@@ -232,4 +218,3 @@ kasasa_screenshot_new (void)
 {
   return KASASA_SCREENSHOT (g_object_new (KASASA_TYPE_SCREENSHOT, NULL));
 }
-

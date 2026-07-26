@@ -25,6 +25,13 @@
   --box-shadow-color: grey;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --osd-background-color: rgba(0, 0, 0, 0.65);
+    --box-shadow-color: #505050;
+  }
+}
+
 .osd-box {
   border-radius: 12px;
   background-color: var(--osd-background-color);
@@ -46,4 +53,3 @@
   padding-left: 0;
   padding-right: 0;
 }
-

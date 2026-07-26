@@ -84,6 +84,7 @@ add_project_arguments(project_c_args, language: 'c')
 subdir('data')
 subdir('src')
 subdir('po')
+subdir('tests')
 
 gnome.post_install(
      glib_compile_schemas: true,

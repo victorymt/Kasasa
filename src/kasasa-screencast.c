@@ -19,9 +19,13 @@
  */
 
 #include <gst/gst.h>
+#include <gst/video/video.h>
 #include <glib/gi18n.h>
+#include <unistd.h>
 
+#include "kasasa-crop.h"
 #include "kasasa-screencast.h"
+#include "kasasa-source.h"
 
 #define CROP_CHEK_INTERVAL 5              // seconds
 #define FIRST_CROP_CHECK_INTERVAL 200     // miliseconds
@@ -29,6 +33,13 @@
 // Default dimensions
 #define DEFAULT_WIDTH  360
 #define DEFAULT_HEIGHT 200
+
+typedef enum
+{
+  CROP_CHECK_STOP,
+  CROP_CHECK_RETRY,
+  CROP_CHECK_DONE,
+} CropCheckResult;
 
 enum
 {
@@ -68,9 +79,12 @@ struct _KasasaScreencast
 
   /* Instance variables */
   GstElement              *pipeline;
+  GstBus                  *bus;
   XdpSession              *session;
   gulong                   closed_handler_id;
   guint                    cropping_source;
+  KasasaSource             first_crop_source;
+  gboolean                 finished;
   gint                     crop[CROP_N_ELEMENTS];
   gint                     dimension[DIMENSION_N_ELEMENTS];
 };
@@ -112,21 +126,57 @@ kasasa_screencast_finish (KasasaContent *content)
   g_return_if_fail (KASASA_IS_SCREENCAST (content));
 
   self = KASASA_SCREENCAST (content);
+  if (self->finished)
+    return;
+
+  self->finished = TRUE;
+
+  kasasa_source_clear (&self->first_crop_source);
+  if (self->cropping_source != 0)
+    {
+      g_source_remove (self->cropping_source);
+      self->cropping_source = 0;
+    }
 
   set_no_screencast (self);
 
   if (self->pipeline)
     gst_element_set_state (self->pipeline, GST_STATE_READY);
+
+  if (self->bus)
+    {
+      g_signal_handlers_disconnect_by_data (self->bus, self);
+      gst_bus_remove_signal_watch (self->bus);
+      gst_object_unref (self->bus);
+      self->bus = NULL;
+    }
+
+  if (self->session)
+    {
+      if (self->closed_handler_id != 0)
+        {
+          g_signal_handler_disconnect (self->session, self->closed_handler_id);
+          self->closed_handler_id = 0;
+        }
+      xdp_session_close (self->session);
+      g_clear_object (&self->session);
+    }
 }
 
 static void
 on_session_closed (XdpSession *session,
-                   gpointer    user_data)
+                    gpointer    user_data)
 {
+  KasasaScreencast *self = KASASA_SCREENCAST (user_data);
+
   g_info ("Session closed");
-  g_signal_emit (user_data,
-                 obj_signals[SIGNAL_EOS],
-                 0);
+  self->closed_handler_id = 0;
+  g_clear_object (&self->session);
+
+  if (!self->finished)
+    g_signal_emit (self,
+                   obj_signals[SIGNAL_EOS],
+                   0);
 }
 
 static void
@@ -135,9 +185,10 @@ eos_cb (GstBus           *bus,
         KasasaScreencast *self)
 {
   g_info ("End-Of-Stream reached");
-  g_signal_emit (self,
-                 obj_signals[SIGNAL_EOS],
-                 0);
+  if (!self->finished)
+    g_signal_emit (self,
+                   obj_signals[SIGNAL_EOS],
+                   0);
 }
 
 static void
@@ -155,16 +206,21 @@ error_cb (GstBus           *bus,
 
   adw_status_page_set_title (self->no_screencast_page,
                              _("Screencast ended with error"));
-  set_no_screencast (self);
-
-  gst_element_set_state (self->pipeline, GST_STATE_READY);
+  if (!self->finished)
+    g_signal_emit (self,
+                   obj_signals[SIGNAL_EOS],
+                   0);
 }
 
 static void
 set_crop (KasasaScreencast *self)
 {
-  GstElement *videocrop = gst_bin_get_by_name (GST_BIN (self->pipeline),
-                                               "videocrop");
+  GstElement *videocrop = NULL;
+
+  if (self->finished || self->pipeline == NULL)
+    return;
+
+  videocrop = gst_bin_get_by_name (GST_BIN (self->pipeline), "videocrop");
 
   if (!videocrop)
     {
@@ -189,6 +245,9 @@ new_dimension (KasasaScreencast *self,
                gint              new_width,
                gint              new_height)
 {
+  new_width = MAX (new_width, DEFAULT_WIDTH);
+  new_height = MAX (new_height, DEFAULT_HEIGHT);
+
   if (self->dimension[DIMENSION_WIDTH] != new_width
       || self->dimension[DIMENSION_HEIGHT] != new_height)
     {
@@ -199,12 +258,11 @@ new_dimension (KasasaScreencast *self,
                      new_height);
     }
 
-  // We expect a window following the GTK/ADW minimal dimensions
-  self->dimension[DIMENSION_WIDTH] = MAX (new_width, DEFAULT_WIDTH);
-  self->dimension[DIMENSION_HEIGHT] = MAX (new_height, DEFAULT_HEIGHT);
+  self->dimension[DIMENSION_WIDTH] = new_width;
+  self->dimension[DIMENSION_HEIGHT] = new_height;
 }
 
-static gboolean
+static CropCheckResult
 compute_crop_values (gpointer user_data)
 {
   KasasaScreencast *self = NULL;
@@ -212,12 +270,21 @@ compute_crop_values (gpointer user_data)
   g_autoptr (GstElement) fakesink = NULL;
   GstBuffer *buffer = NULL;
   const GstCaps *caps = NULL;
+  GstVideoInfo video_info;
+  GstVideoMeta *video_meta = NULL;
   GstMapInfo map;
+  KasasaCrop crop;
+  KasasaCropResult crop_result;
+  gsize offset;
+  gsize stride;
 
   gint width = 0;
   gint height = 0;
 
   self = KASASA_SCREENCAST (user_data);
+
+  if (self->finished || self->pipeline == NULL)
+    return CROP_CHECK_STOP;
 
   // Get fakesink
   fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
@@ -225,7 +292,7 @@ compute_crop_values (gpointer user_data)
     {
       g_warning ("Got fakesink == NULL while processing crop dimensions. "\
                  "Unable to crop to window size.");
-      return G_SOURCE_REMOVE;
+      return CROP_CHECK_STOP;
     }
 
   // Get sample
@@ -235,99 +302,107 @@ compute_crop_values (gpointer user_data)
   if (sample == NULL)
     {
       g_debug ("sample == NULL while processing crop dimensions");
-      return G_SOURCE_CONTINUE;
+      return CROP_CHECK_RETRY;
     }
 
   // Get sample info
   caps = gst_sample_get_caps (sample);
-  if (caps)
+  if (caps == NULL)
     {
-      const GstStructure *structure;
-      const gchar *format;
-
-      structure = gst_caps_get_structure (caps, 0);
-      format = gst_structure_get_string (structure, "format");
-
-      // Check if the format is BGRx
-      if (g_strcmp0 (format, "BGRx") == 0)
-        {
-          gst_structure_get_int (structure, "width", &width);
-          gst_structure_get_int (structure, "height", &height);
-        }
-      else
-        {
-          g_warning ("Expected format BGRx, but received: %s. "\
-                     "Unable to crop to window size.", format);
-          gst_buffer_unmap (buffer, &map);
-          return G_SOURCE_REMOVE;
-        }
+      g_warning ("Sample has no caps; unable to crop to window size.");
+      return CROP_CHECK_STOP;
     }
+
+  if (!gst_video_info_from_caps (&video_info, caps))
+    {
+      g_warning ("Couldn't parse video information from sample caps");
+      return CROP_CHECK_STOP;
+    }
+
+  if (GST_VIDEO_INFO_FORMAT (&video_info) != GST_VIDEO_FORMAT_BGRx
+      && GST_VIDEO_INFO_FORMAT (&video_info) != GST_VIDEO_FORMAT_BGRA)
+    {
+      g_warning ("Expected format BGRx or BGRA, but received: %s. "\
+                 "Unable to crop to window size.",
+                 gst_video_format_to_string (GST_VIDEO_INFO_FORMAT (&video_info)));
+      return CROP_CHECK_STOP;
+    }
+
+  width = GST_VIDEO_INFO_WIDTH (&video_info);
+  height = GST_VIDEO_INFO_HEIGHT (&video_info);
 
   // Ensure the width and height of the sample is ok
   if (width < 100 || height < 100)
     {
       g_warning ("Sample is too small, crop skipped");
-      return G_SOURCE_REMOVE;
+      return CROP_CHECK_STOP;
     }
 
   // Get crop dimensions
   buffer = gst_sample_get_buffer (sample);
-  if (gst_buffer_map (buffer, &map, GST_MAP_READ))
+  if (buffer == NULL || !gst_buffer_map (buffer, &map, GST_MAP_READ))
     {
-      gint top = height, bottom = 0, left = width, right = 0;
-
-      // Analyze the pixel data
-      // (I) Columns
-      for (gint y = 0; y < height; y++)
-        {
-          for (gint x = 0; x < width; x = (x+1)*4)
-            {
-              // 4 bytes per pixel (B, G, R, X)
-              gint index = (y * width + x) * 4;
-
-              guchar b = map.data[index];
-              guchar g = map.data[index + 1];
-              guchar r = map.data[index + 2];
-
-              // Check if the pixel is not black (ignoring the alpha channel)
-              if (b != 0 || g != 0 || r != 0)
-                {
-                  if (y < top) top = y;
-                  if (y > bottom) bottom = y;
-                }
-            }
-        }
-
-      for (gint y = 0; y < height; y = (y+1)*4)
-        {
-          for (gint x = 0; x < width; x++)
-            {
-              gint index = (y * width + x) * 4;
-
-              guchar b = map.data[index];
-              guchar g = map.data[index + 1];
-              guchar r = map.data[index + 2];
-
-              if (b != 0 || g != 0 || r != 0)
-                {
-                  if (x < left) left = x;
-                  if (x > right) right = x;
-                }
-            }
-        }
-
-      // Crop values
-      self->crop[CROP_TOP] = top;
-      self->crop[CROP_RIGHT] = width - right;
-      self->crop[CROP_BOTTOM] = height - bottom;
-      self->crop[CROP_LEFT] = left;
-
-      new_dimension (self,
-                     (right - left),          // width
-                     (bottom - top));         // height
-
-      gst_buffer_unmap (buffer, &map);
+      g_warning ("Unable to map sample buffer for cropping");
+      return CROP_CHECK_RETRY;
     }
+
+  video_meta = gst_buffer_get_video_meta (buffer);
+  if (video_meta != NULL)
+    {
+      if (video_meta->stride[0] <= 0)
+        {
+          g_warning ("Unsupported video stride: %d", video_meta->stride[0]);
+          gst_buffer_unmap (buffer, &map);
+          return CROP_CHECK_STOP;
+        }
+
+      offset = video_meta->offset[0];
+      stride = (gsize) video_meta->stride[0];
+    }
+  else
+    {
+      if (GST_VIDEO_INFO_PLANE_STRIDE (&video_info, 0) <= 0)
+        {
+          g_warning ("Unsupported video stride: %d",
+                     GST_VIDEO_INFO_PLANE_STRIDE (&video_info, 0));
+          gst_buffer_unmap (buffer, &map);
+          return CROP_CHECK_STOP;
+        }
+
+      offset = GST_VIDEO_INFO_PLANE_OFFSET (&video_info, 0);
+      stride = (gsize) GST_VIDEO_INFO_PLANE_STRIDE (&video_info, 0);
+    }
+
+  if (offset > map.size)
+    crop_result = KASASA_CROP_RESULT_INVALID;
+  else
+    crop_result = kasasa_crop_find_rgb32 (map.data + offset,
+                                          map.size - offset,
+                                          width,
+                                          height,
+                                          stride,
+                                          &crop);
+
+  gst_buffer_unmap (buffer, &map);
+
+  if (crop_result == KASASA_CROP_RESULT_INVALID)
+    {
+      g_warning ("Sample buffer is incompatible with its video information");
+      return CROP_CHECK_STOP;
+    }
+
+  if (crop_result == KASASA_CROP_RESULT_EMPTY)
+    {
+      g_debug ("No non-black content found while computing crop");
+      return CROP_CHECK_DONE;
+    }
+
+  self->crop[CROP_TOP] = crop.top;
+  self->crop[CROP_RIGHT] = crop.right;
+  self->crop[CROP_BOTTOM] = crop.bottom;
+  self->crop[CROP_LEFT] = crop.left;
+
+  new_dimension (self, crop.width, crop.height);
 
   g_debug ("Crop values: top: %d, bottom: %d, left: %d, right: %d",
            self->crop[CROP_TOP], self->crop[CROP_BOTTOM],
@@ -338,16 +413,37 @@ compute_crop_values (gpointer user_data)
 
   set_crop (self);
 
-  return G_SOURCE_CONTINUE;
+  return CROP_CHECK_DONE;
 }
 
 static void
 compute_first_crop_values (gpointer user_data)
 {
-  compute_crop_values (user_data);
+  KasasaScreencast *self = KASASA_SCREENCAST (user_data);
+
+  if (compute_crop_values (self) == CROP_CHECK_RETRY && !self->finished)
+    kasasa_source_set_timeout_once (&self->first_crop_source,
+                                    FIRST_CROP_CHECK_INTERVAL,
+                                    compute_first_crop_values,
+                                    self);
 }
 
-void
+static gboolean
+compute_periodic_crop_values (gpointer user_data)
+{
+  KasasaScreencast *self = KASASA_SCREENCAST (user_data);
+  CropCheckResult result = compute_crop_values (self);
+
+  kasasa_source_clear (&self->first_crop_source);
+
+  if (result != CROP_CHECK_STOP)
+    return G_SOURCE_CONTINUE;
+
+  self->cropping_source = 0;
+  return G_SOURCE_REMOVE;
+}
+
+gboolean
 kasasa_screencast_show (KasasaScreencast *self,
                         XdpSession       *session,
                         gint              fd,
@@ -361,14 +457,14 @@ kasasa_screencast_show (KasasaScreencast *self,
 
   GstElement *tee, *queue1, *queue2, *fakesink;
 
-  GdkGLContext *gl_context = NULL;
-  GdkPaintable *paintable = NULL;
+  g_autoptr (GdkGLContext) gl_context = NULL;
+  g_autoptr (GdkPaintable) paintable = NULL;
 
-  GstBus *bus = NULL;
   GstStateChangeReturn ret;
 
+  self->finished = FALSE;
   self->session = session;
-  node_id_str = g_strdup_printf ("%d", node_id);
+  node_id_str = g_strdup_printf ("%u", node_id);
 
   // Create the elements
   self->pipeline = gst_pipeline_new ("pipeline");
@@ -395,7 +491,8 @@ kasasa_screencast_show (KasasaScreencast *self,
       || !queue2 || !fakesink)
     {
       g_warning ("Not all elements could be created.");
-      return;
+      close (fd);
+      return FALSE;
     }
 
   // Set the fd and node ID
@@ -445,25 +542,24 @@ kasasa_screencast_show (KasasaScreencast *self,
       )
     {
       g_warning ("Elements could not be linked.");
-      return;
+      return FALSE;
     }
 
   // Set the paintable
   gtk_picture_set_paintable (self->picture, paintable);
 
   // Configure the bus
-  bus = gst_element_get_bus (self->pipeline);
-  gst_bus_add_signal_watch (bus);
-  g_signal_connect (G_OBJECT (bus), "message::error", (GCallback) error_cb, self);
-  g_signal_connect (G_OBJECT (bus), "message::eos", (GCallback) eos_cb, self);
-  gst_object_unref (bus);
+  self->bus = gst_element_get_bus (self->pipeline);
+  gst_bus_add_signal_watch (self->bus);
+  g_signal_connect (self->bus, "message::error", G_CALLBACK (error_cb), self);
+  g_signal_connect (self->bus, "message::eos", G_CALLBACK (eos_cb), self);
 
   // Start playing
   ret = gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
   if (ret == GST_STATE_CHANGE_FAILURE)
     {
       g_warning ("Unable to set the pipeline to the playing state.");
-      return;
+      return FALSE;
     }
   gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
 
@@ -472,10 +568,15 @@ kasasa_screencast_show (KasasaScreencast *self,
                                               G_CALLBACK (on_session_closed),
                                               self);
 
-  g_timeout_add_once (FIRST_CROP_CHECK_INTERVAL, compute_first_crop_values, self);
+  kasasa_source_set_timeout_once (&self->first_crop_source,
+                                  FIRST_CROP_CHECK_INTERVAL,
+                                  compute_first_crop_values,
+                                  self);
   self->cropping_source = g_timeout_add_seconds (CROP_CHEK_INTERVAL,
-                                                 compute_crop_values,
-                                                 self);
+                                                  compute_periodic_crop_values,
+                                                  self);
+
+  return TRUE;
 }
 
 static void
@@ -483,23 +584,14 @@ kasasa_screencast_dispose (GObject *object)
 {
   KasasaScreencast *self = KASASA_SCREENCAST (object);
 
+  kasasa_screencast_finish (KASASA_CONTENT (self));
+
   if (self->pipeline)
     {
       gst_element_set_state (self->pipeline, GST_STATE_NULL);
       gst_object_unref (self->pipeline);
       self->pipeline = NULL;
     }
-
-  if (self->session)
-    {
-      g_signal_handler_disconnect (self->session, self->closed_handler_id);
-      xdp_session_close (self->session);
-
-      g_clear_object (&self->session);
-    }
-
-  if (self->cropping_source > 0)
-    g_source_remove (self->cropping_source);
 
   G_OBJECT_CLASS (kasasa_screencast_parent_class)->dispose (object);
 }
@@ -512,9 +604,37 @@ kasasa_screencast_content_interface_init (KasasaContentInterface *iface)
 }
 
 static void
+kasasa_screencast_measure (GtkWidget      *widget,
+                           GtkOrientation  orientation,
+                           int             for_size,
+                           int            *minimum,
+                           int            *natural,
+                           int            *minimum_baseline,
+                           int            *natural_baseline)
+{
+  *minimum = 0;
+  *natural = 0;
+  *minimum_baseline = -1;
+  *natural_baseline = -1;
+}
+
+static void
+kasasa_screencast_size_allocate (GtkWidget *widget,
+                                 int        width,
+                                 int        height,
+                                 int        baseline)
+{
+  GtkWidget *child = adw_bin_get_child (ADW_BIN (widget));
+
+  if (child != NULL)
+    gtk_widget_allocate (child, width, height, baseline, NULL);
+}
+
+static void
 kasasa_screencast_class_init (KasasaScreencastClass *klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
+  GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
   gst_init (NULL, NULL);
 
@@ -542,12 +662,20 @@ kasasa_screencast_class_init (KasasaScreencastClass *klass)
                   0);                     // no argument
 
   object_class->dispose = kasasa_screencast_dispose;
+
+  widget_class->measure = kasasa_screencast_measure;
+  widget_class->size_allocate = kasasa_screencast_size_allocate;
 }
 
 static void
 kasasa_screencast_init (KasasaScreencast *self)
 {
   self->pipeline = NULL;
+  self->bus = NULL;
+  self->first_crop_source.id = 0;
+  self->cropping_source = 0;
+  self->closed_handler_id = 0;
+  self->finished = TRUE;
 
   // Initial dimension to avoid 0 value
   self->dimension[DIMENSION_WIDTH] = DEFAULT_WIDTH;
@@ -565,10 +693,23 @@ kasasa_screencast_init (KasasaScreencast *self)
 
   // Page 2 - Screencast
   self->picture = GTK_PICTURE (gtk_picture_new ());
-  gtk_widget_set_valign (GTK_WIDGET (self), GTK_ALIGN_END);
+  gtk_picture_set_content_fit (self->picture, GTK_CONTENT_FIT_FILL);
+  gtk_picture_set_can_shrink (self->picture, TRUE);
+  gtk_widget_set_hexpand (GTK_WIDGET (self->picture), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self->picture), TRUE);
+  gtk_widget_set_halign (GTK_WIDGET (self->picture), GTK_ALIGN_FILL);
+  gtk_widget_set_valign (GTK_WIDGET (self->picture), GTK_ALIGN_FILL);
+
+  gtk_widget_set_hexpand (GTK_WIDGET (self->stack), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self->stack), TRUE);
   gtk_stack_add_child (self->stack, GTK_WIDGET (self->picture));
 
   adw_bin_set_child (ADW_BIN (self), GTK_WIDGET (self->stack));
+  gtk_widget_set_layout_manager (GTK_WIDGET (self), NULL);
+  gtk_widget_set_hexpand (GTK_WIDGET (self), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
+  gtk_widget_set_halign (GTK_WIDGET (self), GTK_ALIGN_FILL);
+  gtk_widget_set_valign (GTK_WIDGET (self), GTK_ALIGN_FILL);
 }
 
 KasasaScreencast *
@@ -579,4 +720,3 @@ kasasa_screencast_new (void)
 
 // https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/tree/main/video/gtk4/examples?ref_type=heads
 // https://github.com/bilelmoussaoui/ashpd/blob/master/examples/screen_cast_gstreamer.rs
-

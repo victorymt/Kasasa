@@ -1,0 +1,6 @@
+option(
+  'integration_tests',
+  type: 'boolean',
+  value: false,
+  description: 'Enable tests that require a real Wayland/Hyprland session',
+)

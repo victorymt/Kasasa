@@ -37,6 +37,10 @@ typedef enum
 
 #define WINDOW_RESIZING_DURATION 500
 
+/* Scroll-wheel zoom relative to the auto-fitted (occupy-screen) size */
+#define WINDOW_ZOOM_MIN      0.25
+#define WINDOW_ZOOM_MAX      4.00
+
 // Due to miniaturization, the real min dimensions are set here (width-request
 // and height-request)
 #define WINDOW_MIN_HEIGHT 110
@@ -52,17 +56,21 @@ KasasaWindow * kasasa_window_get_window_reference (GtkWidget *widget);
 gboolean kasasa_window_get_trash_button_active (KasasaWindow *window);
 gboolean kasasa_window_is_miniaturized (KasasaWindow *window);
 void kasasa_window_hide_window (KasasaWindow           *window,
-                                gboolean                hide,
-                                HideWindowCallback      callback,
-                                gpointer                callback_data);
+                                 gboolean                hide,
+                                 HideWindowCallback      callback,
+                                 GObject                *callback_data);
 void kasasa_window_change_opacity (KasasaWindow *window,
                                    Opacity       opacity_direction);
 void kasasa_window_resize_window (KasasaWindow *window,
                                   gdouble       new_height,
                                   gdouble       new_width);
-void kasasa_window_resize_window_scaling (KasasaWindow *window,
-                                          gdouble       new_height,
-                                          gdouble       new_width);
+gboolean kasasa_window_resize_window_scaling (KasasaWindow *window,
+                                              gdouble       new_height,
+                                              gdouble       new_width);
+gboolean kasasa_window_resize_window_scaling_for_zoom (KasasaWindow *window,
+                                                       gdouble       new_height,
+                                                       gdouble       new_width);
+void kasasa_window_reset_zoom (KasasaWindow *window);
 void kasasa_window_auto_discard_window (KasasaWindow *window);
 void kasasa_window_miniaturize_window (KasasaWindow *window,
                                        gboolean      miniaturize);

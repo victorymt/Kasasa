@@ -44,30 +44,40 @@
       <object class="GtkWindowHandle">
         <property name="hexpand">true</property>
         <property name="vexpand">true</property>
-        <property name="valign">end</property>
+        <property name="halign">fill</property>
+        <property name="valign">fill</property>
         <property name="child">
           <object class="GtkOverlay">
-            <property name="valign">end</property>
+            <property name="hexpand">true</property>
+            <property name="vexpand">true</property>
+            <property name="halign">fill</property>
+            <property name="valign">fill</property>
             <child>
               <object class="GtkBox">
-                <property name="valign">end</property>
+                <property name="hexpand">true</property>
+                <property name="vexpand">true</property>
+                <property name="halign">fill</property>
+                <property name="valign">fill</property>
                 <child>
                   <!-- Toast overlay -->
                   <object class="AdwToastOverlay" id="toast_overlay">
+                    <property name="hexpand">true</property>
+                    <property name="vexpand">true</property>
                     <property name="child">
                       <object class="GtkBox">
-                        <property name="halign">center</property>
+                        <property name="halign">fill</property>
+                        <property name="valign">fill</property>
                         <property name="hexpand">true</property>
-                        <property name="orientation">vertical</property>
-                        <property name="valign">end</property>
                         <property name="vexpand">true</property>
+                        <property name="orientation">vertical</property>
                         <child>
-                          <!-- Caroussel -->
+                          <!-- Caroussel: fill the window so zoom resizes the image, not empty chrome -->
                           <object class="AdwCarousel" id="carousel">
                             <property name="allow-mouse-drag">false</property>
-                            <!-- This forces the carousel to do not expand horizontally, -->
-                            <!-- so small images do not appear together in the same window -->
-                            <property name="halign">center</property>
+                            <property name="hexpand">true</property>
+                            <property name="vexpand">true</property>
+                            <property name="halign">fill</property>
+                            <property name="valign">fill</property>
                           </object>
                         </child>
                       </object>

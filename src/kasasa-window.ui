@@ -31,13 +31,18 @@
             <property name="name">main_page</property>
             <property name="child">
               <object class="GtkBox" id="main_box">
+                <property name="hexpand">true</property>
+                <property name="vexpand">true</property>
                 <child>
                   <object class="GtkOverlay" id="overlay">
+                    <property name="hexpand">true</property>
+                    <property name="vexpand">true</property>
                     <!-- HEADER BAR -->
                     <child type="overlay">
                       <object class="GtkBox">
                         <property name="orientation">vertical</property>
                         <property name="valign">start</property>
+                        <property name="hexpand">true</property>
                         <child>
                           <!-- Revealer -->
                           <object class="GtkRevealer" id="header_bar_revealer">
@@ -108,7 +113,12 @@
 
                     <!-- PICTURE CONTAINER -->
                     <child>
-                      <object class="KasasaContentContainer" id="content_container"/>
+                      <object class="KasasaContentContainer" id="content_container">
+                        <property name="hexpand">true</property>
+                        <property name="vexpand">true</property>
+                        <property name="halign">fill</property>
+                        <property name="valign">fill</property>
+                      </object>
                     </child>
                   </object>
                 </child>

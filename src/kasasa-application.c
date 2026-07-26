@@ -54,12 +54,19 @@ kasasa_application_activate (GApplication *app)
 
   window = gtk_application_get_active_window (GTK_APPLICATION (app));
 
-  if (window == NULL)
-    window = g_object_new (KASASA_TYPE_WINDOW,
-                           "application", app,
-                           NULL);
+  // Re-activation (e.g. second launch while already running): just raise the
+  // existing window instead of forcing another first screenshot.
+  if (window != NULL)
+    {
+      gtk_window_present (window);
+      return;
+    }
 
-  gtk_window_present (GTK_WINDOW (window));
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", app,
+                         NULL);
+
+  gtk_window_present (window);
 
   // The window will be set to 'visible = TRUE' after the screenshot is taken
   gtk_widget_set_visible (GTK_WIDGET (window), FALSE);

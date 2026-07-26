@@ -32,7 +32,8 @@ G_DECLARE_FINAL_TYPE (KasasaScreenshot, kasasa_screenshot, KASASA, SCREENSHOT, A
 
 KasasaScreenshot *kasasa_screenshot_new (void);
 GFile *kasasa_screenshot_get_file (KasasaScreenshot *screenshot);
-void kasasa_screenshot_load_screenshot (KasasaScreenshot *screenshot,
-                                        const gchar      *uri);
+gboolean kasasa_screenshot_load_screenshot (KasasaScreenshot *screenshot,
+                                            const gchar      *uri,
+                                            GError          **error);
 
 G_END_DECLS

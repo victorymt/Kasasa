@@ -1,0 +1,56 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Meson tests
+    runs-on: ubuntu-24.04
+    container: fedora:43
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: >-
+          dnf install -y
+          appstream
+          dbus-daemon
+          desktop-file-utils
+          gcc
+          gettext
+          gstreamer1-devel
+          gstreamer1-plugins-base-devel
+          gtk4-devel
+          libadwaita-devel
+          libportal-devel
+          libportal-gtk4-devel
+          meson
+          ninja-build
+          xorg-x11-server-Xvfb
+
+      - name: Configure
+        run: meson setup build --buildtype=debug
+
+      - name: Build
+        run: meson compile -C build
+
+      - name: Display-independent tests
+        run: >-
+          meson test -C build
+          --no-suite gtk
+          --no-suite integration
+          --print-errorlogs
+
+      - name: GTK component tests
+        run: >-
+          dbus-run-session --
+          xvfb-run -a
+          env GDK_BACKEND=x11 GSK_RENDERER=cairo KASASA_REQUIRE_DISPLAY=1
+          meson test -C build --suite gtk --print-errorlogs
