@@ -7,6 +7,25 @@
 
 #define BYTES_PER_PIXEL 4
 
+gboolean
+kasasa_crop_matches_aspect_ratio (const KasasaCrop *crop,
+                                  gint              expected_width,
+                                  gint              expected_height,
+                                  gdouble           tolerance)
+{
+  gdouble actual_ratio;
+  gdouble expected_ratio;
+
+  if (crop == NULL || crop->width <= 0 || crop->height <= 0
+      || expected_width <= 0 || expected_height <= 0 || tolerance < 0.0)
+    return FALSE;
+
+  actual_ratio = (gdouble) crop->width / (gdouble) crop->height;
+  expected_ratio = (gdouble) expected_width / (gdouble) expected_height;
+
+  return ABS (actual_ratio - expected_ratio) / expected_ratio <= tolerance;
+}
+
 KasasaCropResult
 kasasa_crop_find_rgb32 (const guint8 *data,
                         gsize         size,

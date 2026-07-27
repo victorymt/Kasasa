@@ -18,6 +18,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#include <glib/gi18n.h>
+
 #include "kasasa-screenshot.h"
 #include "kasasa-image.h"
 #include "kasasa-window.h"
@@ -44,6 +46,25 @@ kasasa_screenshot_get_file (KasasaScreenshot *self)
 {
   g_return_val_if_fail (KASASA_IS_SCREENSHOT (self), NULL);
   return self->file;
+}
+
+static void
+report_trash_failure (const gchar *message)
+{
+  GApplication *application = g_application_get_default ();
+
+  g_warning ("Error while deleting screenshot: %s", message);
+
+  if (application != NULL)
+    {
+      g_autoptr (GNotification) notification = NULL;
+
+      notification = g_notification_new (_("Couldn't move screenshot to Trash"));
+      g_notification_set_body (notification, message);
+      g_application_send_notification (application,
+                                       "screenshot-trash-failed",
+                                       notification);
+    }
 }
 
 static void
@@ -82,13 +103,13 @@ kasasa_screenshot_finish (KasasaContent *content)
 
   if (self->file == NULL)
     {
-      g_warning ("Error while deleting screenshot: no reference to image");
+      report_trash_failure (_("No screenshot file is available"));
       return;
     }
 
   if (!g_file_trash (self->file, NULL, &error))
     {
-      g_warning ("Error while deleting screenshot: %s", error->message);
+      report_trash_failure (error->message);
       return;
     }
 
@@ -193,9 +214,8 @@ kasasa_screenshot_init (KasasaScreenshot *self)
 {
   self->picture = GTK_PICTURE (gtk_picture_new ());
 
-  /* FILL: window is already aspect-fitted to the image, so this paints edge
-   * to edge with the frame (no letterbox gap). */
-  gtk_picture_set_content_fit (self->picture, GTK_CONTENT_FIT_FILL);
+  /* Minimum window dimensions can differ from very wide or tall captures. */
+  gtk_picture_set_content_fit (self->picture, GTK_CONTENT_FIT_CONTAIN);
   gtk_picture_set_can_shrink (self->picture, TRUE);
   gtk_widget_set_hexpand (GTK_WIDGET (self->picture), TRUE);
   gtk_widget_set_vexpand (GTK_WIDGET (self->picture), TRUE);

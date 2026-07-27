@@ -34,14 +34,13 @@ struct _KasasaApplication
 G_DEFINE_FINAL_TYPE (KasasaApplication, kasasa_application, ADW_TYPE_APPLICATION)
 
 KasasaApplication *
-kasasa_application_new (const char *application_id,
-                        GApplicationFlags flags)
+kasasa_application_new (const char *application_id)
 {
   g_return_val_if_fail (application_id != NULL, NULL);
 
   return g_object_new (KASASA_TYPE_APPLICATION,
                        "application-id", application_id,
-                       "flags", flags,
+                       "flags", G_APPLICATION_DEFAULT_FLAGS,
                        NULL);
 }
 
@@ -130,14 +129,42 @@ kasasa_application_quit_action (GSimpleAction *action,
                                 gpointer user_data)
 {
   KasasaApplication *self = user_data;
+  GtkWindow *window;
 
   g_assert (KASASA_IS_APPLICATION (self));
 
-  g_application_quit (G_APPLICATION (self));
+  window = gtk_application_get_active_window (GTK_APPLICATION (self));
+  if (window != NULL)
+    gtk_window_close (window);
+  else
+    g_application_quit (G_APPLICATION (self));
+}
+
+static void
+kasasa_application_cancel_delayed_screenshot_action (GSimpleAction *action,
+                                                      GVariant      *parameter,
+                                                      gpointer       user_data)
+{
+  KasasaApplication *self = user_data;
+  GtkWindow *window;
+
+  g_assert (KASASA_IS_APPLICATION (self));
+
+  window = gtk_application_get_active_window (GTK_APPLICATION (self));
+  if (window == NULL)
+    {
+      GList *windows = gtk_application_get_windows (GTK_APPLICATION (self));
+
+      if (windows != NULL)
+        window = GTK_WINDOW (windows->data);
+    }
+  if (KASASA_IS_WINDOW (window))
+    kasasa_window_cancel_delayed_screenshot (KASASA_WINDOW (window));
 }
 
 static const GActionEntry app_actions[] = {
   { "quit", kasasa_application_quit_action },
+  { "cancel-delayed-screenshot", kasasa_application_cancel_delayed_screenshot_action },
   { "about", kasasa_application_about_action },
   { "preferences", kasasa_application_preferences_action }
 };
@@ -153,4 +180,3 @@ kasasa_application_init (KasasaApplication *self)
                                          "app.quit",
                                          (const char *[]) { "<primary>q", NULL });
 }
-

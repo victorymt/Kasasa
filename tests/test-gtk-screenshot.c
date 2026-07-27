@@ -4,10 +4,13 @@
  */
 
 #include <adwaita.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <glib/gstdio.h>
 #include <unistd.h>
 
 #include "kasasa-content.h"
+#include "kasasa-screencast.h"
 #include "kasasa-screenshot.h"
 #include "kasasa-window.h"
 
@@ -72,7 +75,7 @@ test_screenshot_layout (void)
   g_assert_true (GTK_IS_PICTURE (child));
   g_assert_cmpint (gtk_picture_get_content_fit (GTK_PICTURE (child)),
                    ==,
-                   GTK_CONTENT_FIT_FILL);
+                   GTK_CONTENT_FIT_CONTAIN);
   g_assert_true (gtk_picture_get_can_shrink (GTK_PICTURE (child)));
   g_assert_true (gtk_widget_get_hexpand (child));
   g_assert_true (gtk_widget_get_vexpand (child));
@@ -87,6 +90,57 @@ test_screenshot_layout (void)
                       NULL);
   g_assert_cmpint (minimum, ==, 0);
   g_assert_cmpint (natural, ==, 0);
+}
+
+static void
+test_screencast_layout (void)
+{
+  g_autoptr (KasasaScreencast) screencast = kasasa_screencast_new ();
+  GtkWidget *stack = adw_bin_get_child (ADW_BIN (screencast));
+  GtkWidget *child;
+  GtkPicture *picture = NULL;
+
+  g_object_ref_sink (screencast);
+  g_assert_true (GTK_IS_STACK (stack));
+
+  for (child = gtk_widget_get_first_child (stack);
+       child != NULL;
+       child = gtk_widget_get_next_sibling (child))
+    {
+      if (GTK_IS_PICTURE (child))
+        {
+          picture = GTK_PICTURE (child);
+          break;
+        }
+    }
+
+  g_assert_nonnull (picture);
+  g_assert_cmpint (gtk_picture_get_content_fit (picture),
+                   ==,
+                   GTK_CONTENT_FIT_CONTAIN);
+}
+
+static void
+test_screencast_rejects_invalid_connection (void)
+{
+  g_autoptr (KasasaScreencast) screencast = kasasa_screencast_new ();
+  g_autoptr (GError) error = NULL;
+  gint fd;
+
+  g_object_ref_sink (screencast);
+  fd = open ("/dev/null", O_RDONLY);
+  g_assert_cmpint (fd, >=, 0);
+
+  g_assert_false (kasasa_screencast_show (screencast,
+                                          NULL,
+                                          fd,
+                                          1,
+                                          0,
+                                          0,
+                                          &error));
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpint (fcntl (fd, F_GETFD), ==, -1);
+  g_assert_cmpint (errno, ==, EBADF);
 }
 
 static void
@@ -212,6 +266,31 @@ test_same_file_replacement_does_not_trash (void)
   g_assert_cmpint (g_remove (path), ==, 0);
 }
 
+static void
+test_finish_handles_missing_file (void)
+{
+  g_autoptr (KasasaScreenshot) screenshot = kasasa_screenshot_new ();
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *path = NULL;
+  g_autofree gchar *uri = NULL;
+
+  g_object_ref_sink (screenshot);
+  path = create_temp_file (png_1x1, sizeof png_1x1);
+  uri = g_filename_to_uri (path, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (kasasa_screenshot_load_screenshot (screenshot, uri, &error));
+  g_assert_no_error (error);
+  g_assert_cmpint (g_remove (path), ==, 0);
+
+  trash_active = TRUE;
+  g_test_expect_message (NULL,
+                         G_LOG_LEVEL_WARNING,
+                         "Error while deleting screenshot:*");
+  kasasa_content_finish (KASASA_CONTENT (screenshot));
+  g_test_assert_expected_messages ();
+  trash_active = FALSE;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -228,12 +307,17 @@ main (int argc, char **argv)
   adw_init ();
 
   g_test_add_func ("/gtk/screenshot/layout", test_screenshot_layout);
+  g_test_add_func ("/gtk/screencast/layout", test_screencast_layout);
+  g_test_add_func ("/gtk/screencast/invalid-connection",
+                   test_screencast_rejects_invalid_connection);
   g_test_add_func ("/gtk/screenshot/failed-replacement",
                    test_failed_replacement_preserves_screenshot);
   g_test_add_func ("/gtk/screenshot/trashes-exact-file",
                    test_finish_trashes_exact_file);
   g_test_add_func ("/gtk/screenshot/same-file-replacement",
                    test_same_file_replacement_does_not_trash);
+  g_test_add_func ("/gtk/screenshot/missing-file",
+                   test_finish_handles_missing_file);
 
   return g_test_run ();
 }

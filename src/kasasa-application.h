@@ -28,7 +28,6 @@ G_BEGIN_DECLS
 
 G_DECLARE_FINAL_TYPE (KasasaApplication, kasasa_application, KASASA, APPLICATION, AdwApplication)
 
-KasasaApplication *kasasa_application_new (const char        *application_id,
-                                           GApplicationFlags  flags);
+KasasaApplication *kasasa_application_new (const char *application_id);
 
 G_END_DECLS

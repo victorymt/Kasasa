@@ -35,6 +35,8 @@ struct _KasasaPreferences
 
   GtkWidget             *occupy_screen_adjustment;
 
+  GtkWidget             *image_switch_resize_combo;
+
   GtkWidget             *auto_discard_window_switch;
   GtkWidget             *auto_discard_window_adjustment;
 
@@ -55,7 +57,7 @@ on_opacity_expander_row_changed (GObject    *object,
 {
   KasasaPreferences *self = KASASA_PREFERENCES (user_data);
   gboolean decreasing_opacity =
-    adw_expander_row_get_expanded (ADW_EXPANDER_ROW (self->opacity_expander_row));
+    adw_expander_row_get_enable_expansion (ADW_EXPANDER_ROW (self->opacity_expander_row));
 
   // Never allow both hiding modes together
   gtk_widget_set_sensitive (self->miniaturize_switch, !decreasing_opacity);
@@ -110,6 +112,8 @@ kasasa_preferences_class_init (KasasaPreferencesClass *klass)
 
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, occupy_screen_adjustment);
 
+  gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, image_switch_resize_combo);
+
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, auto_discard_window_switch);
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, auto_discard_window_adjustment);
 
@@ -145,6 +149,11 @@ kasasa_preferences_init (KasasaPreferences *self)
                    self->occupy_screen_adjustment, "value",
                    G_SETTINGS_BIND_DEFAULT);
 
+  // Image switching
+  g_settings_bind (self->settings, "image-switch-resize-mode",
+                   self->image_switch_resize_combo, "selected",
+                   G_SETTINGS_BIND_DEFAULT);
+
   // Auto discard window
   g_settings_bind (self->settings, "auto-discard-window",
                    self->auto_discard_window_switch, "active",
@@ -177,7 +186,7 @@ kasasa_preferences_init (KasasaPreferences *self)
     }
 
   // Signals
-  g_signal_connect (self->opacity_expander_row, "notify::expanded",
+  g_signal_connect (self->opacity_expander_row, "notify::enable-expansion",
                     G_CALLBACK (on_opacity_expander_row_changed),
                     self);
 

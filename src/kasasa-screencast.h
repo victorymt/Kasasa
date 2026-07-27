@@ -35,6 +35,9 @@ KasasaScreencast *kasasa_screencast_new (void);
 gboolean kasasa_screencast_show (KasasaScreencast *screencast,
                                  XdpSession       *session,
                                  gint              fd,
-                                 guint             node_id);
+                                 guint             node_id,
+                                 gint              expected_width,
+                                 gint              expected_height,
+                                 GError           **error);
 
 G_END_DECLS

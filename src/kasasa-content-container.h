@@ -31,12 +31,35 @@ G_BEGIN_DECLS
 
 G_DECLARE_FINAL_TYPE (KasasaContentContainer, kasasa_content_container, KASASA, CONTENT_CONTAINER, AdwBreakpointBin)
 
+typedef void (*KasasaPortalTakeScreenshotFunc) (XdpPortal           *portal,
+                                                XdpParent           *parent,
+                                                XdpScreenshotFlags   flags,
+                                                GCancellable        *cancellable,
+                                                GAsyncReadyCallback  callback,
+                                                gpointer             data);
+typedef gchar *(*KasasaPortalTakeScreenshotFinishFunc) (XdpPortal    *portal,
+                                                        GAsyncResult *result,
+                                                        GError      **error);
+
+typedef struct
+{
+  KasasaPortalTakeScreenshotFunc take_screenshot;
+  KasasaPortalTakeScreenshotFinishFunc take_screenshot_finish;
+} KasasaScreenshotPortalOps;
+
 KasasaContentContainer *kasasa_content_container_new (void);
+gboolean kasasa_content_container_append_screenshot (KasasaContentContainer *cc,
+                                                     const gchar            *uri,
+                                                     GError                **error);
+void kasasa_content_container_set_screenshot_portal_ops (
+  KasasaContentContainer          *cc,
+  const KasasaScreenshotPortalOps *ops);
 
 void
 kasasa_content_container_carousel_set_interactive (KasasaContentContainer *cc,
                                                    gboolean                interactive);
 void kasasa_content_container_request_first_screenshot (KasasaContentContainer *cc);
+gboolean kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_window_resize (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_zoom_resize (KasasaContentContainer *cc);
 gboolean kasasa_content_container_switch_page (KasasaContentContainer *cc,

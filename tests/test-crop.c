@@ -174,6 +174,82 @@ test_rejects_short_stride (void)
                    KASASA_CROP_RESULT_INVALID);
 }
 
+static void
+test_crop_aspect_ratio_matches_portal_size (void)
+{
+  KasasaCrop crop = {
+    .width = 1920,
+    .height = 1080,
+  };
+
+  g_assert_true (kasasa_crop_matches_aspect_ratio (&crop,
+                                                   1280,
+                                                   720,
+                                                   0.02));
+
+  crop.width = 300;
+  crop.height = 200;
+  g_assert_false (kasasa_crop_matches_aspect_ratio (&crop,
+                                                    1280,
+                                                    720,
+                                                    0.02));
+  g_assert_false (kasasa_crop_matches_aspect_ratio (&crop,
+                                                    0,
+                                                    720,
+                                                    0.02));
+}
+
+static void
+test_aspect_ratio_tolerance_boundary (void)
+{
+  KasasaCrop crop = {
+    .width = 101,
+    .height = 100,
+  };
+  const gdouble difference = 0.01;
+
+  g_assert_true (kasasa_crop_matches_aspect_ratio (&crop,
+                                                   100,
+                                                   100,
+                                                   difference + 0.0000001));
+  g_assert_false (kasasa_crop_matches_aspect_ratio (&crop,
+                                                    100,
+                                                    100,
+                                                    difference - 0.0000001));
+}
+
+static void
+test_aspect_ratio_rejects_invalid_input (void)
+{
+  KasasaCrop crop = {
+    .width = 100,
+    .height = 100,
+  };
+
+  g_assert_false (kasasa_crop_matches_aspect_ratio (NULL, 100, 100, 0.02));
+  g_assert_false (kasasa_crop_matches_aspect_ratio (&crop, 100, 100, -0.01));
+
+  crop.width = 0;
+  g_assert_false (kasasa_crop_matches_aspect_ratio (&crop, 100, 100, 0.02));
+  crop.width = 100;
+  crop.height = 0;
+  g_assert_false (kasasa_crop_matches_aspect_ratio (&crop, 100, 100, 0.02));
+}
+
+static void
+test_aspect_ratio_large_dimensions (void)
+{
+  KasasaCrop crop = {
+    .width = G_MAXINT,
+    .height = G_MAXINT - 1,
+  };
+
+  g_assert_true (kasasa_crop_matches_aspect_ratio (&crop,
+                                                   G_MAXINT,
+                                                   G_MAXINT - 1,
+                                                   0.0));
+}
+
 int
 main (int argc, char **argv)
 {
@@ -186,6 +262,14 @@ main (int argc, char **argv)
   g_test_add_func ("/crop/padding-is-not-content", test_padding_is_not_content);
   g_test_add_func ("/crop/rejects-short-buffer", test_rejects_short_buffer);
   g_test_add_func ("/crop/rejects-short-stride", test_rejects_short_stride);
+  g_test_add_func ("/crop/portal-aspect-ratio",
+                   test_crop_aspect_ratio_matches_portal_size);
+  g_test_add_func ("/crop/aspect-ratio-tolerance-boundary",
+                   test_aspect_ratio_tolerance_boundary);
+  g_test_add_func ("/crop/aspect-ratio-invalid-input",
+                   test_aspect_ratio_rejects_invalid_input);
+  g_test_add_func ("/crop/aspect-ratio-large-dimensions",
+                   test_aspect_ratio_large_dimensions);
 
   return g_test_run ();
 }

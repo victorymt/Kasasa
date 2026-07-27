@@ -29,6 +29,8 @@
 #include "kasasa-screencast.h"
 #include "kasasa-source.h"
 
+#define DELAYED_SCREENSHOT_NOTIFICATION_ID "delayed-screenshot"
+
 struct _KasasaContentContainer
 {
   AdwBreakpointBin         parent_instance;
@@ -56,16 +58,80 @@ struct _KasasaContentContainer
   KasasaSource             delayed_screenshot_source;
   guint                    carousel_interaction_locks;
   guint                    current_page_index;
+  KasasaScreenshotPortalOps  screenshot_portal_ops;
 };
 
 typedef struct
 {
   GWeakRef container;
+  KasasaPortalTakeScreenshotFinishFunc take_screenshot_finish;
 } PortalRequestData;
+
+static const KasasaScreenshotPortalOps default_screenshot_portal_ops = {
+  .take_screenshot = xdp_portal_take_screenshot,
+  .take_screenshot_finish = xdp_portal_take_screenshot_finish,
+};
 
 G_DEFINE_FINAL_TYPE (KasasaContentContainer, kasasa_content_container, ADW_TYPE_BREAKPOINT_BIN)
 
 static GtkWidget * get_current_content (KasasaContentContainer *self);
+
+static gboolean
+request_was_cancelled (const GError *error)
+{
+  return error != NULL
+         && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+}
+
+static void
+show_operation_error (KasasaContentContainer *self,
+                      const gchar            *fallback_message,
+                      const GError           *error)
+{
+  const gchar *message = error != NULL ? error->message : fallback_message;
+  AdwToast *toast;
+
+  toast = adw_toast_new_format (_("Error: %s"), message);
+  adw_toast_set_action_target_value (toast, g_variant_new_string (message));
+  adw_toast_set_button_label (toast, _("Copy"));
+  adw_toast_set_action_name (toast, "toast.copy_error");
+  adw_toast_overlay_add_toast (self->toast_overlay, toast);
+  g_warning ("%s", message);
+}
+
+static void
+withdraw_delayed_screenshot_notification (void)
+{
+  GApplication *application = g_application_get_default ();
+
+  if (application != NULL)
+    g_application_withdraw_notification (application,
+                                         DELAYED_SCREENSHOT_NOTIFICATION_ID);
+}
+
+static void
+send_delayed_screenshot_notification (guint interval)
+{
+  GApplication *application = g_application_get_default ();
+  g_autoptr (GNotification) notification = NULL;
+  g_autofree gchar *body = NULL;
+
+  if (application == NULL)
+    return;
+
+  notification = g_notification_new (_("Screenshot scheduled"));
+  body = g_strdup_printf (ngettext ("Screenshot in %u second",
+                                    "Screenshot in %u seconds",
+                                    interval),
+                          interval);
+  g_notification_set_body (notification, body);
+  g_notification_add_button (notification,
+                             _("Cancel"),
+                             "app.cancel-delayed-screenshot");
+  g_application_send_notification (application,
+                                   DELAYED_SCREENSHOT_NOTIFICATION_ID,
+                                   notification);
+}
 
 static PortalRequestData *
 portal_request_data_new (KasasaContentContainer *self)
@@ -73,6 +139,8 @@ portal_request_data_new (KasasaContentContainer *self)
   PortalRequestData *data = g_new0 (PortalRequestData, 1);
 
   g_weak_ref_init (&data->container, self);
+  data->take_screenshot_finish =
+    self->screenshot_portal_ops.take_screenshot_finish;
   return data;
 }
 
@@ -85,6 +153,15 @@ portal_request_data_take_container (gpointer user_data)
   g_weak_ref_clear (&data->container);
   g_free (data);
   return self;
+}
+
+static gchar *
+portal_request_data_finish_screenshot (PortalRequestData *data,
+                                       XdpPortal         *portal,
+                                       GAsyncResult      *result,
+                                       GError           **error)
+{
+  return data->take_screenshot_finish (portal, result, error);
 }
 
 static KasasaWindow *
@@ -250,13 +327,18 @@ get_parent (KasasaContentContainer *self)
 }
 
 // Load the screenshot to the GtkPicture widget
-static gboolean
-append_screenshot (KasasaContentContainer *self,
-                   const gchar            *uri,
-                   GError                **error)
+gboolean
+kasasa_content_container_append_screenshot (KasasaContentContainer *self,
+                                            const gchar            *uri,
+                                            GError                **error)
 {
   KasasaScreenshot *new_screenshot = NULL;
-  guint n_pages = adw_carousel_get_n_pages (self->carousel);
+  guint n_pages;
+
+  g_return_val_if_fail (KASASA_IS_CONTENT_CONTAINER (self), FALSE);
+  g_return_val_if_fail (uri != NULL, FALSE);
+
+  n_pages = adw_carousel_get_n_pages (self->carousel);
   g_debug ("Carousel number of pages: %u", n_pages);
 
   if (n_pages >= MAX_N_CONTENTS)
@@ -278,7 +360,23 @@ append_screenshot (KasasaContentContainer *self,
     }
 
   adw_carousel_scroll_to (self->carousel, GTK_WIDGET (new_screenshot), TRUE);
+  kasasa_content_container_update_toolbar_sensibility (self);
   return TRUE;
+}
+
+void
+kasasa_content_container_set_screenshot_portal_ops (
+  KasasaContentContainer          *self,
+  const KasasaScreenshotPortalOps *ops)
+{
+  g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
+  g_return_if_fail (ops == NULL
+                    || (ops->take_screenshot != NULL
+                        && ops->take_screenshot_finish != NULL));
+
+  self->screenshot_portal_ops = ops != NULL
+                                ? *ops
+                                : default_screenshot_portal_ops;
 }
 
 static void
@@ -296,6 +394,10 @@ handle_taken_screenshot (KasasaContentContainer *self,
 
   kasasa_window_hide_window (window, FALSE,
                              NULL, NULL);
+
+  if (request_was_cancelled (portal_error)
+      || (portal_error == NULL && uri == NULL))
+    return;
 
   if (portal_error != NULL)
     {
@@ -354,7 +456,7 @@ handle_taken_screenshot (KasasaContentContainer *self,
   else
     {
       // Add new screenshot
-      if (!append_screenshot (self, uri, &error))
+      if (!kasasa_content_container_append_screenshot (self, uri, &error))
         {
           AdwToast *toast = adw_toast_new_format (_("Error: %s"), error->message);
           adw_toast_overlay_add_toast (self->toast_overlay, toast);
@@ -496,18 +598,22 @@ on_first_screenshot_taken (GObject      *object,
   g_autoptr (GNotification) notification = NULL;
   g_autoptr (GIcon) icon = NULL;
 
-  uri = xdp_portal_take_screenshot_finish (
-    XDP_PORTAL (object),
-    res,
-    &error
-  );
+  uri = portal_request_data_finish_screenshot (user_data,
+                                               XDP_PORTAL (object),
+                                               res,
+                                               &error);
 
   self = portal_request_data_take_container (user_data);
   if (self == NULL || (window = get_root_window (self)) == NULL)
     return;
 
-  // Portal may fail, or the user may cancel (often with error or a NULL uri).
-  // Exit the app on first-screenshot failure; avoid dereferencing a NULL GError.
+  if (request_was_cancelled (error)
+      || (error == NULL && uri == NULL))
+    {
+      gtk_window_close (GTK_WINDOW (window));
+      return;
+    }
+
   if (error != NULL)
     {
       g_warning ("First screenshot failed: %s", error->message);
@@ -527,7 +633,7 @@ on_first_screenshot_taken (GObject      *object,
   // Fresh pin session: start from the auto-fitted size (zoom = 100%)
   kasasa_window_reset_zoom (window);
 
-  if (!append_screenshot (self, uri, &error))
+  if (!kasasa_content_container_append_screenshot (self, uri, &error))
     {
       g_warning ("Couldn't load first screenshot: %s", error->message);
       error_message = g_strconcat (_("Reason: "), error->message, NULL);
@@ -565,7 +671,7 @@ take_first_screenshot (KasasaContentContainer *self)
 {
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
 
-  xdp_portal_take_screenshot (
+  self->screenshot_portal_ops.take_screenshot (
     self->portal,
     NULL,
     XDP_SCREENSHOT_FLAG_INTERACTIVE,
@@ -591,7 +697,10 @@ on_screenshot_taken (GObject      *object,
   g_autofree gchar *uri = NULL;
   KasasaWindow *window = NULL;
 
-  uri = xdp_portal_take_screenshot_finish (XDP_PORTAL (object), res, &error);
+  uri = portal_request_data_finish_screenshot (user_data,
+                                               XDP_PORTAL (object),
+                                               res,
+                                               &error);
   self = portal_request_data_take_container (user_data);
   if (self == NULL || (window = get_root_window (self)) == NULL)
     return;
@@ -608,7 +717,9 @@ take_screenshot_cb (gpointer user_data)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
 
-  xdp_portal_take_screenshot (
+  withdraw_delayed_screenshot_notification ();
+
+  self->screenshot_portal_ops.take_screenshot (
     self->portal,
     NULL,
     XDP_SCREENSHOT_FLAG_INTERACTIVE,
@@ -653,6 +764,7 @@ take_delayed_screenshot (GtkButton *button,
                                           interval,
                                           take_screenshot_cb,
                                           self);
+  send_delayed_screenshot_notification (interval);
 }
 /******************************************************************************/
 
@@ -671,7 +783,10 @@ on_screenshot_retaken (GObject      *object,
   g_autofree gchar *uri = NULL;
   KasasaWindow *window = NULL;
 
-  uri = xdp_portal_take_screenshot_finish (XDP_PORTAL (object), res, &error);
+  uri = portal_request_data_finish_screenshot (user_data,
+                                               XDP_PORTAL (object),
+                                               res,
+                                               &error);
   self = portal_request_data_take_container (user_data);
   if (self == NULL || (window = get_root_window (self)) == NULL)
     return;
@@ -694,7 +809,7 @@ retake_screenshot_cb (gpointer user_data)
   // Avoid changing the carousel page
   kasasa_content_container_carousel_set_interactive (self, FALSE);
 
-  xdp_portal_take_screenshot (
+  self->screenshot_portal_ops.take_screenshot (
     self->portal,
     NULL,
     XDP_SCREENSHOT_FLAG_INTERACTIVE,
@@ -735,11 +850,15 @@ on_screencast_session_started (GObject      *source_object,
                                gpointer      data)
 {
   gint fd;
+  gint stream_width = 0;
+  gint stream_height = 0;
   guint node_id;
 
   g_autoptr (GError) error = NULL;
+  g_autoptr (GError) pipeline_error = NULL;
   g_autoptr (GVariant) streams = NULL;
   g_autoptr (GVariant) stream = NULL;
+  g_autoptr (GVariant) stream_properties = NULL;
   g_autoptr (KasasaContentContainer) self = NULL;
   KasasaScreencast *screencast = NULL;
   KasasaWindow *window = NULL;
@@ -764,10 +883,10 @@ on_screencast_session_started (GObject      *source_object,
   if (error != NULL || !success)
     {
       kasasa_content_container_update_toolbar_sensibility (self);
-      if (error != NULL)
-        g_warning ("Couldn't start the session successfully: %s", error->message);
-      else
-        g_warning ("Couldn't start the session successfully");
+      if (!request_was_cancelled (error))
+        show_operation_error (self,
+                              _("Couldn't start the screencast"),
+                              error);
       xdp_session_close (session);
       g_object_unref (session);
       return;
@@ -777,25 +896,45 @@ on_screencast_session_started (GObject      *source_object,
   if (streams == NULL || g_variant_n_children (streams) < 1)
     {
       kasasa_content_container_update_toolbar_sensibility (self);
-      g_warning ("Screencast session started without any streams");
-      xdp_session_close (session);
-      g_object_unref (session);
-      return;
-    }
-
-  fd = xdp_session_open_pipewire_remote (session);
-  if (fd < 0)
-    {
-      kasasa_content_container_update_toolbar_sensibility (self);
-      g_warning ("Couldn't open the PipeWire remote");
+      show_operation_error (self,
+                            _("The screencast did not provide a video stream"),
+                            NULL);
       xdp_session_close (session);
       g_object_unref (session);
       return;
     }
 
   stream = g_variant_get_child_value (streams, 0);
+  if (!g_variant_is_of_type (stream, G_VARIANT_TYPE ("(ua{sv})")))
+    {
+      kasasa_content_container_update_toolbar_sensibility (self);
+      show_operation_error (self,
+                            _("The screencast provided invalid stream information"),
+                            NULL);
+      xdp_session_close (session);
+      g_object_unref (session);
+      return;
+    }
+
   g_variant_get (stream,
-                 "(ua{sv})", &node_id, NULL);
+                 "(u@a{sv})", &node_id, &stream_properties);
+  g_variant_lookup (stream_properties,
+                    "size",
+                    "(ii)",
+                    &stream_width,
+                    &stream_height);
+
+  fd = xdp_session_open_pipewire_remote (session);
+  if (fd < 0)
+    {
+      kasasa_content_container_update_toolbar_sensibility (self);
+      show_operation_error (self,
+                            _("Couldn't connect to the screencast service"),
+                            NULL);
+      xdp_session_close (session);
+      g_object_unref (session);
+      return;
+    }
 
   {
     g_autofree gchar *streams_description = g_variant_print (streams, TRUE);
@@ -809,8 +948,17 @@ on_screencast_session_started (GObject      *source_object,
   g_signal_connect (screencast, "eos",
                     G_CALLBACK (on_screencast_eos), self);
 
-  if (!kasasa_screencast_show (screencast, session, fd, node_id))
+  if (!kasasa_screencast_show (screencast,
+                               session,
+                               fd,
+                               node_id,
+                               stream_width,
+                               stream_height,
+                               &pipeline_error))
     {
+      show_operation_error (self,
+                            _("Couldn't display the screencast"),
+                            pipeline_error);
       g_object_unref (screencast);
       kasasa_content_container_update_toolbar_sensibility (self);
       return;
@@ -850,10 +998,10 @@ create_screencast_session_cb (GObject      *source_object,
     {
       kasasa_content_container_update_toolbar_sensibility (self);
       kasasa_window_block_miniaturization (window, FALSE);
-      if (error != NULL)
-        g_warning ("Failed to create screencast session: %s", error->message);
-      else
-        g_warning ("Failed to create screencast session");
+      if (!request_was_cancelled (error))
+        show_operation_error (self,
+                              _("Couldn't create the screencast"),
+                              error);
       return;
     }
 
@@ -898,6 +1046,30 @@ kasasa_content_container_request_first_screenshot (KasasaContentContainer *self)
 {
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
   take_first_screenshot (self);
+}
+
+gboolean
+kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *self)
+{
+  KasasaWindow *window;
+
+  g_return_val_if_fail (KASASA_IS_CONTENT_CONTAINER (self), FALSE);
+
+  if (self->delayed_screenshot_source.id == 0)
+    return FALSE;
+
+  kasasa_source_clear (&self->delayed_screenshot_source);
+  withdraw_delayed_screenshot_notification ();
+
+  window = get_root_window (self);
+  if (window != NULL)
+    {
+      kasasa_window_hide_window (window, FALSE, NULL, NULL);
+      kasasa_window_block_miniaturization (window, FALSE);
+    }
+
+  kasasa_content_container_update_toolbar_sensibility (self);
+  return TRUE;
 }
 
 static GtkWidget *
@@ -1024,9 +1196,12 @@ on_page_changed (AdwCarousel *carousel,
                                  &new_height,
                                  &new_width);
 
-  kasasa_window_resize_window_scaling (window,
-                                       (gdouble) new_height,
-                                       (gdouble) new_width);
+  kasasa_window_resize_for_content_switch (
+    window,
+    (gdouble) new_height,
+    (gdouble) new_width,
+    (KasasaSwitchResizeMode) g_settings_get_uint (
+      self->settings, "image-switch-resize-mode"));
 }
 
 static void
@@ -1165,6 +1340,7 @@ kasasa_content_container_dispose (GObject *object)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (object);
 
+  withdraw_delayed_screenshot_notification ();
   kasasa_source_clear (&self->delayed_screenshot_source);
   if (self->portal_cancellable != NULL)
     g_cancellable_cancel (self->portal_cancellable);
@@ -1176,6 +1352,11 @@ kasasa_content_container_dispose (GObject *object)
       xdp_parent_free (self->parent);
       self->parent = NULL;
     }
+
+  /* Finishing a carousel animation during template disposal can emit
+   * page-changed after the container has already been finalized. */
+  if (self->carousel != NULL)
+    g_signal_handlers_disconnect_by_data (self->carousel, self);
 
   gtk_widget_dispose_template (GTK_WIDGET (object), KASASA_TYPE_CONTENT_CONTAINER);
 
@@ -1221,6 +1402,7 @@ kasasa_content_container_init (KasasaContentContainer *self)
   self->parent = NULL;
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
   self->portal_cancellable = g_cancellable_new ();
+  self->screenshot_portal_ops = default_screenshot_portal_ops;
   self->carousel_interaction_locks = 0;
   self->current_page_index = GTK_INVALID_LIST_POSITION;
 

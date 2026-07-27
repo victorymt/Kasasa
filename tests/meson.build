@@ -1,6 +1,10 @@
 glib_dep = dependency('glib-2.0')
 gtk_dep = dependency('gtk4')
 adwaita_dep = dependency('libadwaita-1', version: '>= 1.7.4')
+portal_dep = dependency('libportal')
+portal_gtk_dep = dependency('libportal-gtk4')
+gstreamer_dep = dependency('gstreamer-1.0')
+gstreamer_video_dep = dependency('gstreamer-video-1.0')
 math_dep = cc.find_library('m', required: true)
 
 zoom_test = executable(
@@ -82,9 +86,17 @@ gtk_screenshot_test = executable(
     '../src/kasasa-content.c',
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
+    '../src/kasasa-screencast.c',
+    '../src/kasasa-crop.c',
+    '../src/kasasa-source.c',
   ],
   include_directories: include_directories('../src'),
-  dependencies: adwaita_dep,
+  dependencies: [
+    adwaita_dep,
+    portal_dep,
+    gstreamer_dep,
+    gstreamer_video_dep,
+  ],
 )
 
 test(
@@ -93,6 +105,141 @@ test(
   env: [
     'G_DEBUG=fatal-warnings',
     'GSETTINGS_BACKEND=memory',
+    'XDG_CONFIG_HOME=' + (meson.current_build_dir() / 'config'),
+    'XDG_DATA_HOME=' + (meson.current_build_dir() / 'data'),
+  ],
+  suite: 'gtk',
+  timeout: 30,
+)
+
+gtk_application_test = executable(
+  'test-gtk-application',
+  [
+    'test-gtk-application.c',
+    '../src/kasasa-application.c',
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: adwaita_dep,
+)
+
+test(
+  'Application lifecycle',
+  gtk_application_test,
+  env: [
+    'G_DEBUG=fatal-warnings',
+    'GSETTINGS_BACKEND=memory',
+    'XDG_CONFIG_HOME=' + (meson.current_build_dir() / 'config'),
+    'XDG_DATA_HOME=' + (meson.current_build_dir() / 'data'),
+  ],
+  suite: 'gtk',
+  timeout: 30,
+)
+
+test_app_resources = gnome.compile_resources(
+  'test-preferences-resources',
+  '../src/kasasa.gresource.xml',
+  source_dir: '../src',
+  c_name: 'kasasa_test_preferences',
+)
+
+gtk_preferences_test = executable(
+  'test-gtk-preferences',
+  [
+    'test-gtk-preferences.c',
+    '../src/kasasa-preferences.c',
+    test_app_resources,
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: adwaita_dep,
+)
+
+test(
+  'Preferences behavior',
+  gtk_preferences_test,
+  env: [
+    'G_DEBUG=fatal-warnings',
+    'GSETTINGS_BACKEND=memory',
+    'GSETTINGS_SCHEMA_DIR=' + (meson.project_build_root() / 'data'),
+    'XDG_CONFIG_HOME=' + (meson.current_build_dir() / 'config'),
+    'XDG_DATA_HOME=' + (meson.current_build_dir() / 'data'),
+  ],
+  suite: 'gtk',
+  timeout: 30,
+)
+
+gtk_content_container_test = executable(
+  'test-gtk-content-container',
+  [
+    'test-gtk-content-container.c',
+    '../src/kasasa-content-container.c',
+    '../src/kasasa-content.c',
+    '../src/kasasa-image.c',
+    '../src/kasasa-screenshot.c',
+    '../src/kasasa-screencast.c',
+    '../src/kasasa-crop.c',
+    '../src/kasasa-source.c',
+    test_app_resources,
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: [
+    adwaita_dep,
+    portal_dep,
+    portal_gtk_dep,
+    gstreamer_dep,
+    gstreamer_video_dep,
+    math_dep,
+  ],
+)
+
+test(
+  'Content container behavior',
+  gtk_content_container_test,
+  env: [
+    'G_DEBUG=fatal-warnings',
+    'GSETTINGS_BACKEND=memory',
+    'GSETTINGS_SCHEMA_DIR=' + (meson.project_build_root() / 'data'),
+    'XDG_CONFIG_HOME=' + (meson.current_build_dir() / 'config'),
+    'XDG_DATA_HOME=' + (meson.current_build_dir() / 'data'),
+  ],
+  suite: 'gtk',
+  timeout: 30,
+)
+
+gtk_window_test = executable(
+  'test-gtk-window',
+  [
+    'test-gtk-window.c',
+    '../src/kasasa-application.c',
+    '../src/kasasa-window.c',
+    '../src/kasasa-preferences.c',
+    '../src/kasasa-content-container.c',
+    '../src/kasasa-content.c',
+    '../src/kasasa-image.c',
+    '../src/kasasa-screenshot.c',
+    '../src/kasasa-screencast.c',
+    '../src/kasasa-crop.c',
+    '../src/kasasa-source.c',
+    '../src/kasasa-zoom.c',
+    test_app_resources,
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: [
+    adwaita_dep,
+    portal_dep,
+    portal_gtk_dep,
+    gstreamer_dep,
+    gstreamer_video_dep,
+    math_dep,
+  ],
+)
+
+test(
+  'Window cleanup behavior',
+  gtk_window_test,
+  env: [
+    'G_DEBUG=fatal-warnings',
+    'GSETTINGS_BACKEND=memory',
+    'GSETTINGS_SCHEMA_DIR=' + (meson.project_build_root() / 'data'),
     'XDG_CONFIG_HOME=' + (meson.current_build_dir() / 'config'),
     'XDG_DATA_HOME=' + (meson.current_build_dir() / 'data'),
   ],

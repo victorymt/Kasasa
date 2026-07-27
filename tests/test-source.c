@@ -13,6 +13,13 @@ typedef struct
   guint count;
 } RearmData;
 
+typedef struct
+{
+  GMainLoop *loop;
+  guint count;
+  gboolean timed_out;
+} SecondsData;
+
 static void
 increment_counter (gpointer user_data)
 {
@@ -35,6 +42,25 @@ rearm_until_three (gpointer user_data)
 }
 
 static void
+seconds_callback (gpointer user_data)
+{
+  SecondsData *data = user_data;
+
+  data->count++;
+  g_main_loop_quit (data->loop);
+}
+
+static gboolean
+seconds_guard_timeout (gpointer user_data)
+{
+  SecondsData *data = user_data;
+
+  data->timed_out = TRUE;
+  g_main_loop_quit (data->loop);
+  return G_SOURCE_REMOVE;
+}
+
+static void
 dispatch_pending_sources (void)
 {
   while (g_main_context_iteration (NULL, FALSE))
@@ -54,6 +80,38 @@ test_dispatches_once (void)
 
   g_assert_cmpuint (counter, ==, 1);
   g_assert_cmpuint (source.id, ==, 0);
+}
+
+static void
+test_seconds_dispatches_once (void)
+{
+  KasasaSource source = { 0 };
+  GSource *guard_source;
+  SecondsData data = { 0 };
+
+  data.loop = g_main_loop_new (NULL, FALSE);
+  guard_source = g_timeout_source_new (3000);
+  g_source_set_callback (guard_source,
+                         seconds_guard_timeout,
+                         &data,
+                         NULL);
+  g_source_attach (guard_source, NULL);
+
+  kasasa_source_set_timeout_seconds_once (&source,
+                                          1,
+                                          seconds_callback,
+                                          &data);
+  g_assert_cmpuint (source.id, !=, 0);
+
+  g_main_loop_run (data.loop);
+
+  g_assert_false (data.timed_out);
+  g_assert_cmpuint (data.count, ==, 1);
+  g_assert_cmpuint (source.id, ==, 0);
+
+  g_source_destroy (guard_source);
+  g_source_unref (guard_source);
+  g_main_loop_unref (data.loop);
 }
 
 static void
@@ -111,6 +169,8 @@ main (int argc, char **argv)
   g_test_init (&argc, &argv, NULL);
 
   g_test_add_func ("/source/dispatches-once", test_dispatches_once);
+  g_test_add_func ("/source/seconds-dispatches-once",
+                   test_seconds_dispatches_once);
   g_test_add_func ("/source/clear-cancels", test_clear_cancels_callback);
   g_test_add_func ("/source/replacement-cancels-previous",
                    test_replacement_cancels_previous_callback);

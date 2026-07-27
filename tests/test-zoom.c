@@ -163,6 +163,48 @@ test_nonfinite_delta_is_ignored (void)
 }
 
 static void
+assert_continuous_shrink_reaches_lower_bound (KasasaZoomInput input,
+                                              gdouble         delta)
+{
+  const gdouble lower = 0.25;
+  gdouble zoom = 1.0;
+  guint changes = 0;
+
+  for (guint i = 0; i < 2048; i++)
+    {
+      gdouble previous = zoom;
+
+      zoom = kasasa_zoom_apply_delta (zoom, lower, 4.0, delta, input);
+      g_assert_true (isfinite (zoom));
+      g_assert_cmpfloat (zoom, <=, previous);
+      g_assert_cmpfloat (zoom, >=, lower);
+      if (zoom < previous)
+        changes++;
+    }
+
+  g_assert_cmpuint (changes, >, 0);
+  g_assert_cmpfloat_with_epsilon (zoom, lower, 0.000001);
+
+  for (guint i = 0; i < 64; i++)
+    g_assert_cmpfloat (kasasa_zoom_apply_delta (zoom,
+                                               lower,
+                                               4.0,
+                                               delta,
+                                               input),
+                       ==,
+                       lower);
+}
+
+static void
+test_continuous_shrink (void)
+{
+  assert_continuous_shrink_reaches_lower_bound (KASASA_ZOOM_INPUT_WHEEL,
+                                                1.0);
+  assert_continuous_shrink_reaches_lower_bound (KASASA_ZOOM_INPUT_SURFACE,
+                                                1.0);
+}
+
+static void
 test_follow_is_frame_rate_independent (void)
 {
   gdouble one_frame;
@@ -205,6 +247,7 @@ main (int argc, char **argv)
   g_test_add_func ("/zoom/dynamic-bounds", test_dynamic_bounds);
   g_test_add_func ("/zoom/zero-delta", test_zero_delta_clamps_stale_value);
   g_test_add_func ("/zoom/nonfinite-delta", test_nonfinite_delta_is_ignored);
+  g_test_add_func ("/zoom/continuous-shrink", test_continuous_shrink);
   g_test_add_func ("/zoom/follow-frame-rate", test_follow_is_frame_rate_independent);
   g_test_add_func ("/zoom/follow-retarget", test_follow_retargets_without_reset);
 

@@ -32,5 +32,9 @@ KasasaCropResult kasasa_crop_find_rgb32 (const guint8 *data,
                                          gint          height,
                                          gsize         stride,
                                          KasasaCrop   *crop);
+gboolean kasasa_crop_matches_aspect_ratio (const KasasaCrop *crop,
+                                           gint              expected_width,
+                                           gint              expected_height,
+                                           gdouble           tolerance);
 
 G_END_DECLS

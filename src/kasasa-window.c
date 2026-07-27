@@ -98,6 +98,13 @@ kasasa_window_take_first_screenshot (KasasaWindow *self)
   kasasa_content_container_request_first_screenshot (self->content_container);
 }
 
+void
+kasasa_window_cancel_delayed_screenshot (KasasaWindow *self)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+  kasasa_content_container_cancel_delayed_screenshot (self->content_container);
+}
+
 KasasaWindow *
 kasasa_window_get_window_reference (GtkWidget *widget)
 {
@@ -552,10 +559,6 @@ kasasa_window_apply_geometry (KasasaWindow *self,
   width = MAX (width, 1);
   height = MAX (height, 1);
 
-  if (self->content_container != NULL)
-    gtk_widget_set_size_request (GTK_WIDGET (self->content_container), -1, -1);
-
-  gtk_widget_set_size_request (GTK_WIDGET (self), -1, -1);
   gtk_window_set_default_size (GTK_WINDOW (self), width, height);
 }
 
@@ -741,6 +744,70 @@ kasasa_window_resize_window_scaling_for_zoom (KasasaWindow *self,
                                               gdouble       new_width)
 {
   return resize_window_scaling (self, new_height, new_width, TRUE);
+}
+
+gboolean
+kasasa_window_resize_for_content_switch (KasasaWindow          *self,
+                                         gdouble                new_height,
+                                         gdouble                new_width,
+                                         KasasaSwitchResizeMode mode)
+{
+  gdouble base_height;
+  gdouble base_width;
+  gdouble base_zoom;
+  gdouble desired_zoom;
+  gdouble previous_zoom;
+  gint current_height;
+  gint current_width;
+
+  g_return_val_if_fail (KASASA_IS_WINDOW (self), FALSE);
+
+  switch (mode)
+    {
+    case KASASA_SWITCH_RESIZE_FIT:
+      return kasasa_window_resize_window_scaling (self,
+                                                  new_height,
+                                                  new_width);
+    case KASASA_SWITCH_RESIZE_KEEP_WIDTH:
+    case KASASA_SWITCH_RESIZE_KEEP_HEIGHT:
+      break;
+    default:
+      g_return_val_if_reached (FALSE);
+    }
+
+  /* The first page has no meaningful visible dimension to preserve. */
+  if (!gtk_widget_get_mapped (GTK_WIDGET (self)))
+    return kasasa_window_resize_window_scaling (self,
+                                                new_height,
+                                                new_width);
+
+  kasasa_window_get_visual_size (self, &current_width, &current_height);
+  previous_zoom = self->zoom_factor;
+  self->zoom_factor = 1.0;
+
+  if (compute_size (self,
+                    &base_width,
+                    &base_height,
+                    new_height,
+                    new_width))
+    {
+      self->zoom_factor = previous_zoom;
+      return kasasa_window_resize_window_scaling (self,
+                                                  new_height,
+                                                  new_width);
+    }
+
+  /* compute_size may clamp 100% for unusually small or large content. */
+  base_zoom = self->zoom_factor;
+  if (mode == KASASA_SWITCH_RESIZE_KEEP_WIDTH)
+    desired_zoom = base_zoom * current_width / base_width;
+  else
+    desired_zoom = base_zoom * current_height / base_height;
+
+  self->zoom_factor = CLAMP (desired_zoom, self->zoom_min, self->zoom_max);
+  return kasasa_window_resize_window_scaling (self,
+                                              new_height,
+                                              new_width);
 }
 
 void
@@ -1404,6 +1471,49 @@ kasasa_window_schedule_zoom_apply (KasasaWindow *self)
                                   NULL);
 }
 
+gboolean
+kasasa_window_apply_zoom_delta (KasasaWindow   *self,
+                                gdouble         delta,
+                                KasasaZoomInput input)
+{
+  gdouble next_zoom;
+  gdouble previous_zoom;
+
+  g_return_val_if_fail (KASASA_IS_WINDOW (self), FALSE);
+  g_return_val_if_fail (input == KASASA_ZOOM_INPUT_WHEEL
+                        || input == KASASA_ZOOM_INPUT_SURFACE,
+                        FALSE);
+
+  if (self->window_is_miniaturized)
+    kasasa_window_miniaturize_window (self, FALSE);
+
+  previous_zoom = self->zoom_factor;
+  next_zoom = kasasa_zoom_apply_delta (previous_zoom,
+                                       self->zoom_min,
+                                       self->zoom_max,
+                                       delta,
+                                       input);
+  if (ABS (next_zoom - previous_zoom) < 0.000001)
+    return FALSE;
+
+  self->zoom_factor = next_zoom;
+  g_debug ("Zoom factor: %.3f (%s input)",
+           self->zoom_factor,
+           input == KASASA_ZOOM_INPUT_SURFACE ? "surface" : "wheel");
+
+  kasasa_window_schedule_zoom_apply (self);
+  kasasa_window_change_opacity (self, OPACITY_INCREASE);
+  return TRUE;
+}
+
+gdouble
+kasasa_window_get_zoom_factor (KasasaWindow *self)
+{
+  g_return_val_if_fail (KASASA_IS_WINDOW (self), 1.0);
+
+  return self->zoom_factor;
+}
+
 static gboolean
 on_scroll (GtkEventControllerScroll *controller,
            gdouble                   dx,
@@ -1414,8 +1524,6 @@ on_scroll (GtkEventControllerScroll *controller,
   KasasaZoomInput input;
   KasasaScrollAxis axis;
   GdkScrollUnit unit;
-  gdouble next_zoom;
-  gdouble previous_zoom;
 
   unit = gtk_event_controller_scroll_get_unit (controller);
   input = unit == GDK_SCROLL_UNIT_SURFACE
@@ -1434,34 +1542,7 @@ on_scroll (GtkEventControllerScroll *controller,
   if (axis != KASASA_SCROLL_AXIS_VERTICAL)
     return GDK_EVENT_PROPAGATE;
 
-  // If miniaturized, restore the pin first so zoom is visible
-  if (self->window_is_miniaturized)
-    kasasa_window_miniaturize_window (self, FALSE);
-
-  previous_zoom = self->zoom_factor;
-  next_zoom = kasasa_zoom_apply_delta (previous_zoom,
-                                       self->zoom_min,
-                                       self->zoom_max,
-                                       dy,
-                                       input);
-
-  if (ABS (next_zoom - previous_zoom) < 0.000001)
-    {
-      // Consume vertical scrolling at the effective limit without scheduling
-      // another no-op resize animation.
-      return GDK_EVENT_STOP;
-    }
-
-  self->zoom_factor = next_zoom;
-  g_debug ("Zoom factor: %.3f (%s input)",
-           self->zoom_factor,
-           input == KASASA_ZOOM_INPUT_SURFACE ? "surface" : "wheel");
-
-  // Coalesce to the frame clock so border + screenshot update together
-  kasasa_window_schedule_zoom_apply (self);
-
-  // Keep the pin readable while zooming if auto-opacity is enabled
-  kasasa_window_change_opacity (self, OPACITY_INCREASE);
+  kasasa_window_apply_zoom_delta (self, dy, input);
 
   return GDK_EVENT_STOP;
 }
