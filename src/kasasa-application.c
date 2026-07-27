@@ -21,16 +21,28 @@
 #include "config.h"
 
 #include <glib/gi18n.h>
+#include <stdio.h>
 
 #include "kasasa-application.h"
+#include "kasasa-hyprland-capture.h"
 #include "kasasa-preferences.h"
+#include "kasasa-window-query.h"
 #include "kasasa-window.h"
+
+/* Exit codes for CLI utilities */
+#define KASASA_EXIT_OK            0
+#define KASASA_EXIT_ERROR         1
+#define KASASA_EXIT_MATCH         2
+#define KASASA_EXIT_UNAVAILABLE   3
 
 struct _KasasaApplication
 {
   AdwApplication parent_instance;
 
   gboolean start_with_screencast;
+  gboolean list_windows;
+  gboolean list_json;
+  gchar   *window_spec;
 };
 
 G_DEFINE_FINAL_TYPE (KasasaApplication, kasasa_application, ADW_TYPE_APPLICATION)
@@ -44,6 +56,99 @@ kasasa_application_new (const char *application_id)
                        "application-id", application_id,
                        "flags", G_APPLICATION_HANDLES_COMMAND_LINE,
                        NULL);
+}
+
+static int
+query_error_to_exit_code (const GError *error)
+{
+  if (error == NULL)
+    return KASASA_EXIT_ERROR;
+
+  if (g_error_matches (error, KASASA_WINDOW_QUERY_ERROR,
+                       KASASA_WINDOW_QUERY_ERROR_UNAVAILABLE))
+    return KASASA_EXIT_UNAVAILABLE;
+
+  if (g_error_matches (error, KASASA_WINDOW_QUERY_ERROR,
+                       KASASA_WINDOW_QUERY_ERROR_NO_MATCH)
+      || g_error_matches (error, KASASA_WINDOW_QUERY_ERROR,
+                          KASASA_WINDOW_QUERY_ERROR_AMBIGUOUS))
+    return KASASA_EXIT_MATCH;
+
+  return KASASA_EXIT_ERROR;
+}
+
+static int
+run_list_windows (gboolean as_json)
+{
+  g_autoptr (GPtrArray) clients = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *text = NULL;
+
+  clients = kasasa_window_query_list_clients (&error);
+  if (clients == NULL)
+    {
+      g_printerr ("%s\n", error != NULL ? error->message : _("Failed to list windows"));
+      return query_error_to_exit_code (error);
+    }
+
+  text = as_json
+         ? kasasa_window_query_format_json (clients)
+         : kasasa_window_query_format_table (clients);
+  g_print ("%s", text);
+  if (as_json)
+    g_print ("\n");
+
+  return KASASA_EXIT_OK;
+}
+
+static int
+present_targeted_screenshot (KasasaApplication *self,
+                             const gchar       *window_spec)
+{
+  g_autoptr (KasasaWindowClient) client = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *uri = NULL;
+  GtkWindow *window;
+
+  if (self->start_with_screencast)
+    {
+      g_printerr ("%s\n",
+                  _("Targeted live screencast is not implemented yet; "
+                    "use --window without --screencast for a screenshot pin, "
+                    "or --screencast alone for interactive capture."));
+      return KASASA_EXIT_ERROR;
+    }
+
+  client = kasasa_window_query_resolve_live (window_spec, &error);
+  if (client == NULL)
+    {
+      g_printerr ("%s\n", error != NULL ? error->message : _("Failed to resolve window"));
+      return query_error_to_exit_code (error);
+    }
+
+  uri = kasasa_hyprland_capture_screenshot (client, &error);
+  if (uri == NULL)
+    {
+      g_printerr ("%s\n", error != NULL ? error->message : _("Failed to capture window"));
+      return query_error_to_exit_code (error);
+    }
+
+  window = gtk_application_get_active_window (GTK_APPLICATION (self));
+  if (window != NULL)
+    {
+      gtk_window_present (window);
+      if (KASASA_IS_WINDOW (window))
+        kasasa_window_load_first_screenshot_uri (KASASA_WINDOW (window), uri);
+      return KASASA_EXIT_OK;
+    }
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", self,
+                         NULL);
+  gtk_window_present (window);
+  gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
+  kasasa_window_load_first_screenshot_uri (KASASA_WINDOW (window), uri);
+  return KASASA_EXIT_OK;
 }
 
 static void
@@ -94,6 +199,22 @@ kasasa_application_activate (GApplication *app)
 
   g_assert (KASASA_IS_APPLICATION (app));
 
+  if (self->list_windows)
+    {
+      int code = run_list_windows (self->list_json);
+      g_application_quit (app);
+      /* g_application_run will still return 0 from activate; list is handled
+       * primarily in command-line / local options. */
+      (void) code;
+      return;
+    }
+
+  if (self->window_spec != NULL)
+    {
+      present_targeted_screenshot (self, self->window_spec);
+      return;
+    }
+
   present_or_create_window (self, self->start_with_screencast);
   self->start_with_screencast = FALSE;
 }
@@ -103,8 +224,27 @@ kasasa_application_handle_local_options (GApplication *app,
                                          GVariantDict *options)
 {
   KasasaApplication *self = KASASA_APPLICATION (app);
+  const gchar *window_spec = NULL;
 
   self->start_with_screencast = g_variant_dict_contains (options, "screencast");
+  self->list_windows = g_variant_dict_contains (options, "list-windows");
+  self->list_json = g_variant_dict_contains (options, "json");
+  g_clear_pointer (&self->window_spec, g_free);
+
+  if (g_variant_dict_lookup (options, "window", "&s", &window_spec)
+      && window_spec != NULL)
+    self->window_spec = g_strdup (window_spec);
+
+  if (self->list_json && !self->list_windows)
+    {
+      g_printerr ("%s\n", _("--json requires --list-windows"));
+      return KASASA_EXIT_ERROR;
+    }
+
+  /* Pure listing: no remote activation / no GUI. */
+  if (self->list_windows)
+    return run_list_windows (self->list_json);
+
   return -1;
 }
 
@@ -114,10 +254,35 @@ kasasa_application_command_line (GApplication            *app,
 {
   KasasaApplication *self = KASASA_APPLICATION (app);
   GVariantDict *options = g_application_command_line_get_options_dict (cmdline);
-  gboolean start_with_screencast = g_variant_dict_contains (options, "screencast");
+  const gchar *window_spec = NULL;
+  gboolean start_with_screencast;
+  gboolean list_windows;
+  gboolean list_json;
+
+  start_with_screencast = g_variant_dict_contains (options, "screencast");
+  list_windows = g_variant_dict_contains (options, "list-windows");
+  list_json = g_variant_dict_contains (options, "json");
+
+  if (list_json && !list_windows)
+    {
+      g_application_command_line_printerr (cmdline,
+                                           "%s\n",
+                                           _("--json requires --list-windows"));
+      return KASASA_EXIT_ERROR;
+    }
+
+  if (list_windows)
+    return run_list_windows (list_json);
+
+  if (g_variant_dict_lookup (options, "window", "&s", &window_spec)
+      && window_spec != NULL)
+    {
+      self->start_with_screencast = start_with_screencast;
+      return present_targeted_screenshot (self, window_spec);
+    }
 
   present_or_create_window (self, start_with_screencast);
-  return 0;
+  return KASASA_EXIT_OK;
 }
 
 static void
@@ -134,10 +299,22 @@ kasasa_application_preferences_action (GSimpleAction *action,
 }
 
 static void
+kasasa_application_dispose (GObject *object)
+{
+  KasasaApplication *self = KASASA_APPLICATION (object);
+
+  g_clear_pointer (&self->window_spec, g_free);
+
+  G_OBJECT_CLASS (kasasa_application_parent_class)->dispose (object);
+}
+
+static void
 kasasa_application_class_init (KasasaApplicationClass *klass)
 {
+  GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GApplicationClass *app_class = G_APPLICATION_CLASS (klass);
 
+  object_class->dispose = kasasa_application_dispose;
   app_class->activate = kasasa_application_activate;
   app_class->handle_local_options = kasasa_application_handle_local_options;
   app_class->command_line = kasasa_application_command_line;
@@ -232,10 +409,40 @@ kasasa_application_init (KasasaApplication *self)
       .description = N_("Start by pinning a screencast instead of a screenshot"),
       .arg_description = NULL,
     },
+    {
+      .long_name = "list-windows",
+      .short_name = 'l',
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_NONE,
+      .arg_data = NULL,
+      .description = N_("List capturable windows (Hyprland) and exit"),
+      .arg_description = NULL,
+    },
+    {
+      .long_name = "json",
+      .short_name = 0,
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_NONE,
+      .arg_data = NULL,
+      .description = N_("With --list-windows, print JSON"),
+      .arg_description = NULL,
+    },
+    {
+      .long_name = "window",
+      .short_name = 'w',
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_STRING,
+      .arg_data = NULL,
+      .description = N_("Capture a window: class, title:…, address:…, or active"),
+      .arg_description = N_("SPEC"),
+    },
     { NULL }
   };
 
   self->start_with_screencast = FALSE;
+  self->list_windows = FALSE;
+  self->list_json = FALSE;
+  self->window_spec = NULL;
 
   g_application_add_main_option_entries (G_APPLICATION (self), entries);
 

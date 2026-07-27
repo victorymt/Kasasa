@@ -41,6 +41,14 @@ kasasa_window_request_screencast (KasasaWindow *window)
 }
 
 void
+kasasa_window_load_first_screenshot_uri (KasasaWindow *window,
+                                         const gchar  *uri)
+{
+  (void) window;
+  (void) uri;
+}
+
+void
 kasasa_window_cancel_delayed_screenshot (KasasaWindow *window)
 {
   cancel_delayed_requested = TRUE;

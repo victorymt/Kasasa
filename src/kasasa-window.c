@@ -113,6 +113,16 @@ kasasa_window_request_screencast (KasasaWindow *self)
 }
 
 void
+kasasa_window_load_first_screenshot_uri (KasasaWindow *self,
+                                         const gchar  *uri)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+  g_return_if_fail (uri != NULL);
+  kasasa_content_container_load_first_screenshot_uri (self->content_container,
+                                                      uri);
+}
+
+void
 kasasa_window_cancel_delayed_screenshot (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));

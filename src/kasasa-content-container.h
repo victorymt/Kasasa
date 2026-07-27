@@ -61,6 +61,9 @@ kasasa_content_container_carousel_set_interactive (KasasaContentContainer *cc,
 void kasasa_content_container_request_first_screenshot (KasasaContentContainer *cc);
 void kasasa_content_container_request_first_screencast (KasasaContentContainer *cc);
 void kasasa_content_container_request_screencast (KasasaContentContainer *cc);
+/* Load a local image URI as the first pin (Hyprland/grim path). */
+void kasasa_content_container_load_first_screenshot_uri (KasasaContentContainer *cc,
+                                                         const gchar            *uri);
 gboolean kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_window_resize (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_zoom_resize (KasasaContentContainer *cc);

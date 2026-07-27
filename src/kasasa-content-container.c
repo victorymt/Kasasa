@@ -1206,6 +1206,65 @@ kasasa_content_container_request_first_screenshot (KasasaContentContainer *self)
 }
 
 void
+kasasa_content_container_load_first_screenshot_uri (KasasaContentContainer *self,
+                                                    const gchar            *uri)
+{
+  KasasaWindow *window = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *error_message = NULL;
+  g_autoptr (GNotification) notification = NULL;
+  g_autoptr (GIcon) icon = NULL;
+
+  g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
+  g_return_if_fail (uri != NULL);
+
+  window = get_root_window (self);
+  if (window == NULL)
+    return;
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+
+  if (uri[0] == '\0')
+    {
+      error_message = g_strconcat (_("Reason: "),
+                                   _("Couldn't load the screenshot"),
+                                   NULL);
+      goto FAIL;
+    }
+
+  kasasa_window_reset_zoom (window);
+
+  if (!kasasa_content_container_append_screenshot (self, uri, &error))
+    {
+      g_warning ("Couldn't load first screenshot: %s", error->message);
+      error_message = g_strconcat (_("Reason: "), error->message, NULL);
+      goto FAIL;
+    }
+
+  gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
+  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
+  kasasa_content_container_request_window_resize (self);
+
+  if (g_settings_get_boolean (settings, "auto-discard-window"))
+    kasasa_window_auto_discard_window (window);
+
+  kasasa_window_miniaturize_window (window, TRUE);
+  return;
+
+FAIL:
+  icon = g_themed_icon_new ("dialog-warning-symbolic");
+  notification = g_notification_new (_("Screenshot failed"));
+  g_notification_set_icon (notification, icon);
+  if (error_message != NULL)
+    g_notification_set_body (notification, error_message);
+  g_application_send_notification (g_application_get_default (),
+                                   "io.github.kelvinnovais.Kasasa",
+                                   notification);
+  gtk_window_close (GTK_WINDOW (window));
+}
+
+void
 kasasa_content_container_request_first_screencast (KasasaContentContainer *self)
 {
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));

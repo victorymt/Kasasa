@@ -79,6 +79,26 @@ test(
   timeout: 30,
 )
 
+json_glib_dep = dependency('json-glib-1.0')
+
+window_query_test = executable(
+  'test-window-query',
+  [
+    'test-window-query.c',
+    '../src/kasasa-window-query.c',
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: [glib_dep, json_glib_dep],
+)
+
+test(
+  'Window query matching',
+  window_query_test,
+  env: ['G_DEBUG=fatal-warnings'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 gtk_screenshot_test = executable(
   'test-gtk-screenshot',
   [
@@ -117,9 +137,11 @@ gtk_application_test = executable(
   [
     'test-gtk-application.c',
     '../src/kasasa-application.c',
+    '../src/kasasa-window-query.c',
+    '../src/kasasa-hyprland-capture.c',
   ],
   include_directories: include_directories('../src'),
-  dependencies: adwaita_dep,
+  dependencies: [adwaita_dep, json_glib_dep],
 )
 
 test(
@@ -220,6 +242,8 @@ gtk_window_test = executable(
     '../src/kasasa-crop.c',
     '../src/kasasa-source.c',
     '../src/kasasa-zoom.c',
+    '../src/kasasa-window-query.c',
+    '../src/kasasa-hyprland-capture.c',
     test_app_resources,
   ],
   include_directories: include_directories('../src'),
@@ -230,6 +254,7 @@ gtk_window_test = executable(
     gstreamer_dep,
     gstreamer_video_dep,
     math_dep,
+    json_glib_dep,
   ],
 )
 

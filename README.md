@@ -48,6 +48,22 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > `kasasa` starts with an interactive screenshot. `kasasa --screencast` (or
 > `-c`) starts directly with the screencast picker. If Kasasa is already
 > running, `--screencast` appends a new screencast to the existing window.
+>
+> On Hyprland you can also list windows and pin a specific one without the
+> interactive picker (needs `hyprctl` and `grim`):
+>
+> ```
+> kasasa --list-windows
+> kasasa --list-windows --json
+> kasasa --window=Alacritty
+> kasasa --window=title:nvim
+> kasasa --window=active
+> kasasa --window=address:0x1234abcd
+> ```
+>
+> Bare `--window=NAME` matches `class` first, then title substring. Multiple
+> matches print candidates and exit with status 2. Targeted live screencast
+> (`--screencast --window=…`) is not implemented yet.
 
 > [!IMPORTANT]
 > On GNOME versions < 46, a dialog will appear to set up and take the screenshot,

@@ -11,6 +11,8 @@ kasasa_sources = [
   'kasasa-screenshot.c',
   'kasasa-screencast.c',
   'kasasa-content-container.c',
+  'kasasa-window-query.c',
+  'kasasa-hyprland-capture.c',
 ]
 
 kasasa_deps = [
@@ -20,6 +22,7 @@ kasasa_deps = [
   dependency('libportal-gtk4'),
   dependency('gstreamer-1.0'),
   dependency('gstreamer-video-1.0'),
+  dependency('json-glib-1.0'),
 ]
 
 kasasa_deps += cc.find_library('m', required : true)
