@@ -50,6 +50,30 @@ kasasa_content_finish (KasasaContent *self)
   iface->finish (self);
 }
 
+gboolean
+kasasa_content_should_fill_allocation (gint content_height,
+                                       gint content_width,
+                                       gint allocation_height,
+                                       gint allocation_width)
+{
+  gdouble height_error;
+  gdouble width_error;
+
+  if (content_height <= 0 || content_width <= 0
+      || allocation_height <= 0 || allocation_width <= 0)
+    return FALSE;
+
+  width_error = ABS (allocation_width
+                     - allocation_height
+                       * (gdouble) content_width / content_height);
+  height_error = ABS (allocation_height
+                      - allocation_width
+                        * (gdouble) content_height / content_width);
+
+  /* A common scale rounded independently can miss either axis by one pixel. */
+  return MIN (width_error, height_error) <= 1.0;
+}
+
 static void
 default_finish (KasasaContent *self)
 {
@@ -61,4 +85,3 @@ kasasa_content_default_init (KasasaContentInterface *iface)
 {
   iface->finish = default_finish;
 }
-

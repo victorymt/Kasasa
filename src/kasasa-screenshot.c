@@ -191,7 +191,18 @@ kasasa_screenshot_size_allocate (GtkWidget *widget,
                                  int        height,
                                  int        baseline)
 {
+  KasasaScreenshot *self = KASASA_SCREENSHOT (widget);
   GtkWidget *child = adw_bin_get_child (ADW_BIN (widget));
+  GtkContentFit fit;
+
+  fit = kasasa_content_should_fill_allocation (self->image_height,
+                                               self->image_width,
+                                               height,
+                                               width)
+        ? GTK_CONTENT_FIT_FILL
+        : GTK_CONTENT_FIT_CONTAIN;
+  if (gtk_picture_get_content_fit (self->picture) != fit)
+    gtk_picture_set_content_fit (self->picture, fit);
 
   if (child != NULL)
     gtk_widget_allocate (child, width, height, baseline, NULL);
@@ -214,7 +225,7 @@ kasasa_screenshot_init (KasasaScreenshot *self)
 {
   self->picture = GTK_PICTURE (gtk_picture_new ());
 
-  /* Minimum window dimensions can differ from very wide or tall captures. */
+  /* Allocation switches to FILL when only pixel rounding differs. */
   gtk_picture_set_content_fit (self->picture, GTK_CONTENT_FIT_CONTAIN);
   gtk_picture_set_can_shrink (self->picture, TRUE);
   gtk_widget_set_hexpand (GTK_WIDGET (self->picture), TRUE);

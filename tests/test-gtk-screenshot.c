@@ -121,6 +121,23 @@ test_screencast_layout (void)
 }
 
 static void
+test_content_fit_ignores_rounding_gaps (void)
+{
+  g_assert_false (kasasa_content_should_fill_allocation (0, 1200,
+                                                         600, 900));
+  g_assert_true (kasasa_content_should_fill_allocation (800, 1200,
+                                                        600, 900));
+  g_assert_true (kasasa_content_should_fill_allocation (800, 1200,
+                                                        600, 901));
+  g_assert_true (kasasa_content_should_fill_allocation (100, 1000,
+                                                        76, 751));
+  g_assert_false (kasasa_content_should_fill_allocation (100, 1000,
+                                                         75, 75));
+  g_assert_false (kasasa_content_should_fill_allocation (800, 1200,
+                                                         600, 902));
+}
+
+static void
 test_screencast_rejects_invalid_connection (void)
 {
   g_autoptr (KasasaScreencast) screencast = kasasa_screencast_new ();
@@ -308,6 +325,8 @@ main (int argc, char **argv)
 
   g_test_add_func ("/gtk/screenshot/layout", test_screenshot_layout);
   g_test_add_func ("/gtk/screencast/layout", test_screencast_layout);
+  g_test_add_func ("/gtk/content/fit-rounding-gaps",
+                   test_content_fit_ignores_rounding_gaps);
   g_test_add_func ("/gtk/screencast/invalid-connection",
                    test_screencast_rejects_invalid_connection);
   g_test_add_func ("/gtk/screenshot/failed-replacement",

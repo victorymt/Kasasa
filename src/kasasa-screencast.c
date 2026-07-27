@@ -787,7 +787,19 @@ kasasa_screencast_size_allocate (GtkWidget *widget,
                                  int        height,
                                  int        baseline)
 {
+  KasasaScreencast *self = KASASA_SCREENCAST (widget);
   GtkWidget *child = adw_bin_get_child (ADW_BIN (widget));
+  GtkContentFit fit;
+
+  fit = kasasa_content_should_fill_allocation (
+          self->dimension[DIMENSION_HEIGHT],
+          self->dimension[DIMENSION_WIDTH],
+          height,
+          width)
+        ? GTK_CONTENT_FIT_FILL
+        : GTK_CONTENT_FIT_CONTAIN;
+  if (gtk_picture_get_content_fit (self->picture) != fit)
+    gtk_picture_set_content_fit (self->picture, fit);
 
   if (child != NULL)
     gtk_widget_allocate (child, width, height, baseline, NULL);

@@ -45,4 +45,9 @@ void kasasa_content_get_dimensions (KasasaContent *content,
 
 void kasasa_content_finish (KasasaContent *content);
 
+gboolean kasasa_content_should_fill_allocation (gint content_height,
+                                                gint content_width,
+                                                gint allocation_height,
+                                                gint allocation_width);
+
 G_END_DECLS
