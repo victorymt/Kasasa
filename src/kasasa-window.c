@@ -123,6 +123,19 @@ kasasa_window_load_first_screenshot_uri (KasasaWindow *self,
 }
 
 void
+kasasa_window_load_first_hyprland_screencast (KasasaWindow *self,
+                                              guint32       window_handle,
+                                              gint          width,
+                                              gint          height)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+  kasasa_content_container_load_first_hyprland_screencast (self->content_container,
+                                                           window_handle,
+                                                           width,
+                                                           height);
+}
+
+void
 kasasa_window_cancel_delayed_screenshot (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#include "kasasa-hyprland-stream.h"
 #include "kasasa-window-query.h"
 
 static const gchar *clients_json =
@@ -153,11 +154,36 @@ test_parse_and_resolve (void)
   kasasa_window_spec_clear (&spec);
 }
 
+static void
+test_handle_from_address (void)
+{
+  guint32 handle = 0;
+  g_autoptr (GError) error = NULL;
+
+  g_assert_true (kasasa_hyprland_stream_handle_from_address ("0x55d517efd3c0",
+                                                             &handle,
+                                                             &error));
+  g_assert_no_error (error);
+  g_assert_cmpuint (handle, ==, 0x17efd3c0u);
+
+  g_assert_true (kasasa_hyprland_stream_handle_from_address ("3512854448",
+                                                             &handle,
+                                                             &error));
+  g_assert_cmpuint (handle, ==, 3512854448u);
+
+  g_assert_false (kasasa_hyprland_stream_handle_from_address ("not-a-handle",
+                                                              &handle,
+                                                              &error));
+  g_assert_nonnull (error);
+  g_clear_error (&error);
+}
+
 int
 main (int argc, char **argv)
 {
   g_test_init (&argc, &argv, NULL);
   g_test_add_func ("/unit/window-query/spec-parse", test_spec_parse);
   g_test_add_func ("/unit/window-query/resolve", test_parse_and_resolve);
+  g_test_add_func ("/unit/window-query/handle", test_handle_from_address);
   return g_test_run ();
 }

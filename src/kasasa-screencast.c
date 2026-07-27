@@ -19,11 +19,13 @@
  */
 
 #include <gst/gst.h>
+#include <gst/app/gstappsrc.h>
 #include <gst/video/video.h>
 #include <glib/gi18n.h>
 #include <unistd.h>
 
 #include "kasasa-crop.h"
+#include "kasasa-hyprland-stream.h"
 #include "kasasa-screencast.h"
 #include "kasasa-source.h"
 
@@ -89,8 +91,10 @@ struct _KasasaScreencast
 
   /* Instance variables */
   GstElement              *pipeline;
+  GstElement              *appsrc;
   GstBus                  *bus;
   XdpSession              *session;
+  KasasaHyprlandStream    *hypr_stream;
   gulong                   closed_handler_id;
   guint                    cropping_source;
   KasasaSource             first_crop_source;
@@ -100,6 +104,8 @@ struct _KasasaScreencast
   gint                     dimension[DIMENSION_N_ELEMENTS];
   gint                     expected_width;
   gint                     expected_height;
+  gint                     stream_width;
+  gint                     stream_height;
 };
 
 static void kasasa_screencast_content_interface_init (KasasaContentInterface *iface);
@@ -153,8 +159,16 @@ kasasa_screencast_finish (KasasaContent *content)
 
   set_no_screencast (self);
 
+  if (self->hypr_stream != NULL)
+    {
+      kasasa_hyprland_stream_stop (self->hypr_stream);
+      self->hypr_stream = NULL;
+    }
+
   if (self->pipeline)
     gst_element_set_state (self->pipeline, GST_STATE_READY);
+
+  g_clear_object (&self->appsrc);
 
   if (self->bus)
     {
@@ -727,6 +741,289 @@ ELEMENT_ERROR:
   unref_element (queue2);
   unref_element (fakesink);
   close (fd);
+
+  return set_screencast_error (error,
+                               G_IO_ERROR_NOT_SUPPORTED,
+                               _("Required GStreamer plugins are unavailable"));
+}
+
+typedef struct
+{
+  KasasaScreencast *self;
+  guint8 *data;
+  gint width;
+  gint height;
+  gint stride;
+  gboolean has_alpha;
+} HyprFrameIdle;
+
+static void
+hypr_frame_idle_free (HyprFrameIdle *frame)
+{
+  if (frame == NULL)
+    return;
+  g_free (frame->data);
+  g_free (frame);
+}
+
+static gboolean
+push_hypr_frame_idle (gpointer user_data)
+{
+  HyprFrameIdle *frame = user_data;
+  KasasaScreencast *self = frame->self;
+  GstBuffer *buffer;
+  GstFlowReturn ret;
+  gsize size;
+  g_autoptr (GstCaps) caps = NULL;
+
+  if (self == NULL || self->finished || self->appsrc == NULL)
+    {
+      if (self != NULL)
+        g_object_unref (self);
+      hypr_frame_idle_free (frame);
+      return G_SOURCE_REMOVE;
+    }
+
+  if (self->stream_width != frame->width || self->stream_height != frame->height)
+    {
+      self->stream_width = frame->width;
+      self->stream_height = frame->height;
+      caps = gst_caps_new_simple ("video/x-raw",
+                                  "format", G_TYPE_STRING,
+                                  frame->has_alpha ? "BGRA" : "BGRx",
+                                  "width", G_TYPE_INT, frame->width,
+                                  "height", G_TYPE_INT, frame->height,
+                                  "framerate", GST_TYPE_FRACTION, 30, 1,
+                                  NULL);
+      gst_app_src_set_caps (GST_APP_SRC (self->appsrc), caps);
+      new_dimension (self, frame->width, frame->height);
+    }
+
+  size = (gsize) frame->stride * (gsize) frame->height;
+  buffer = gst_buffer_new_allocate (NULL, size, NULL);
+  if (buffer == NULL)
+    {
+      g_object_unref (self);
+      hypr_frame_idle_free (frame);
+      return G_SOURCE_REMOVE;
+    }
+
+  gst_buffer_fill (buffer, 0, frame->data, size);
+  GST_BUFFER_PTS (buffer) = GST_CLOCK_TIME_NONE;
+  GST_BUFFER_DTS (buffer) = GST_CLOCK_TIME_NONE;
+  GST_BUFFER_DURATION (buffer) = gst_util_uint64_scale_int (1, GST_SECOND, 30);
+
+  ret = gst_app_src_push_buffer (GST_APP_SRC (self->appsrc), buffer);
+  if (ret != GST_FLOW_OK)
+    g_debug ("appsrc push returned %s", gst_flow_get_name (ret));
+
+  g_object_unref (self);
+  hypr_frame_idle_free (frame);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+on_hypr_stream_frame (gpointer     user_data,
+                      const guint8 *data,
+                      gint          width,
+                      gint          height,
+                      gint          stride,
+                      gboolean      has_alpha)
+{
+  KasasaScreencast *self = user_data;
+  HyprFrameIdle *frame;
+  gsize size;
+
+  if (self == NULL || self->finished || data == NULL || width <= 0 || height <= 0)
+    return;
+
+  size = (gsize) stride * (gsize) height;
+  frame = g_new0 (HyprFrameIdle, 1);
+  frame->self = g_object_ref (self);
+  frame->data = g_memdup2 (data, size);
+  frame->width = width;
+  frame->height = height;
+  frame->stride = stride;
+  frame->has_alpha = has_alpha;
+
+  g_idle_add_full (G_PRIORITY_DEFAULT,
+                   push_hypr_frame_idle,
+                   frame,
+                   NULL);
+}
+
+gboolean
+kasasa_screencast_show_hyprland (KasasaScreencast *self,
+                                 guint32           window_handle,
+                                 gint              expected_width,
+                                 gint              expected_height,
+                                 GError          **error)
+{
+  GstElement *appsrc = NULL;
+  GstElement *videocrop = NULL;
+  GstElement *gtksink = NULL;
+  GstElement *display_convert = NULL;
+  GstElement *crop_convert = NULL;
+  GstElement *crop_filter = NULL;
+  g_autoptr (GstCaps) crop_caps = NULL;
+  g_autoptr (GstCaps) appsrc_caps = NULL;
+  GstElement *tee = NULL;
+  GstElement *queue1 = NULL;
+  GstElement *queue2 = NULL;
+  GstElement *fakesink = NULL;
+  g_autoptr (GdkPaintable) paintable = NULL;
+  GstStateChangeReturn ret;
+  g_autoptr (GError) stream_error = NULL;
+
+  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+  self->finished = FALSE;
+  self->expected_width = expected_width;
+  self->expected_height = expected_height;
+  self->stream_width = 0;
+  self->stream_height = 0;
+
+  if (self->pipeline != NULL || self->hypr_stream != NULL)
+    {
+      return set_screencast_error (error,
+                                   G_IO_ERROR_INVALID_ARGUMENT,
+                                   _("Screencast is already active"));
+    }
+
+  if (expected_width > 0 && expected_height > 0)
+    new_dimension (self, expected_width, expected_height);
+
+  self->pipeline = gst_pipeline_new ("hyprland-pipeline");
+  appsrc = gst_element_factory_make ("appsrc", "appsrc");
+  gtksink = gst_element_factory_make ("gtk4paintablesink", "sink");
+  videocrop = gst_element_factory_make ("videocrop", "videocrop");
+  display_convert = gst_element_factory_make ("videoconvert", "display_convert");
+  crop_convert = gst_element_factory_make ("videoconvert", "crop_convert");
+  crop_filter = gst_element_factory_make ("capsfilter", "crop_filter");
+  crop_caps = gst_caps_from_string ("video/x-raw,format=BGRx");
+  tee = gst_element_factory_make ("tee", "tee");
+  queue1 = gst_element_factory_make ("queue", "queue1");
+  queue2 = gst_element_factory_make ("queue", "queue2");
+  fakesink = gst_element_factory_make ("fakesink", "fakesink");
+
+  if (self->pipeline == NULL || appsrc == NULL || tee == NULL
+      || queue1 == NULL || queue2 == NULL || display_convert == NULL
+      || videocrop == NULL || gtksink == NULL || crop_convert == NULL
+      || crop_filter == NULL || fakesink == NULL || crop_caps == NULL)
+    goto ELEMENT_ERROR;
+
+  g_object_get (gtksink, "paintable", &paintable, NULL);
+  if (paintable == NULL)
+    goto ELEMENT_ERROR;
+
+  /* Placeholder size until the first Hyprland frame arrives with real dims. */
+  {
+    gint cap_w = expected_width > 0 ? expected_width : DEFAULT_WIDTH;
+    gint cap_h = expected_height > 0 ? expected_height : DEFAULT_HEIGHT;
+
+    appsrc_caps = gst_caps_new_simple ("video/x-raw",
+                                       "format", G_TYPE_STRING, "BGRx",
+                                       "width", G_TYPE_INT, cap_w,
+                                       "height", G_TYPE_INT, cap_h,
+                                       "framerate", GST_TYPE_FRACTION, 30, 1,
+                                       NULL);
+  }
+  g_object_set (appsrc,
+                "is-live", TRUE,
+                "format", GST_FORMAT_TIME,
+                "stream-type", GST_APP_STREAM_TYPE_STREAM,
+                "block", FALSE,
+                "max-bytes", (guint64) (8 * 1024 * 1024),
+                NULL);
+  gst_app_src_set_caps (GST_APP_SRC (appsrc), appsrc_caps);
+  g_object_set (crop_filter, "caps", crop_caps, NULL);
+  g_object_set (fakesink,
+                "sync", FALSE,
+                "async", FALSE,
+                "enable-last-sample", TRUE,
+                NULL);
+  g_object_set (gtksink, "sync", FALSE, NULL);
+
+  g_info ("Screencast pipeline uses Hyprland toplevel-export appsrc path");
+
+  gst_bin_add_many (GST_BIN (self->pipeline),
+                    appsrc, tee,
+                    queue1, display_convert, videocrop, gtksink,
+                    queue2, crop_convert, crop_filter, fakesink,
+                    NULL);
+
+  if (!gst_element_link (appsrc, tee)
+      || !gst_element_link_many (tee, queue1, display_convert, videocrop,
+                                 gtksink, NULL)
+      || !gst_element_link_many (tee, queue2, crop_convert, crop_filter,
+                                 fakesink, NULL))
+    {
+      return set_screencast_error (error,
+                                   G_IO_ERROR_FAILED,
+                                   _("The screencast pipeline could not be linked"));
+    }
+
+  gtk_picture_set_paintable (self->picture, paintable);
+
+  self->bus = gst_element_get_bus (self->pipeline);
+  if (self->bus == NULL)
+    return set_screencast_error (error,
+                                 G_IO_ERROR_FAILED,
+                                 _("The screencast pipeline has no message bus"));
+
+  gst_bus_add_signal_watch (self->bus);
+  g_signal_connect (self->bus, "message::error", G_CALLBACK (error_cb), self);
+  g_signal_connect (self->bus, "message::eos", G_CALLBACK (eos_cb), self);
+
+  ret = gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+  if (ret == GST_STATE_CHANGE_FAILURE)
+    {
+      return set_screencast_error (error,
+                                   G_IO_ERROR_FAILED,
+                                   _("The screencast pipeline could not be started"));
+    }
+
+  self->appsrc = gst_object_ref (appsrc);
+  self->hypr_stream = kasasa_hyprland_stream_start (window_handle,
+                                                    on_hypr_stream_frame,
+                                                    self,
+                                                    NULL,
+                                                    &stream_error);
+  if (self->hypr_stream == NULL)
+    {
+      if (stream_error != NULL)
+        g_propagate_error (error, g_steal_pointer (&stream_error));
+      else
+        set_screencast_error (error,
+                              G_IO_ERROR_FAILED,
+                              _("Couldn't start Hyprland window capture"));
+      return FALSE;
+    }
+
+  gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
+
+  kasasa_source_set_timeout_once (&self->first_crop_source,
+                                  FIRST_CROP_CHECK_INTERVAL,
+                                  compute_first_crop_values,
+                                  self);
+  self->cropping_source = g_timeout_add_seconds (CROP_CHEK_INTERVAL,
+                                                  compute_periodic_crop_values,
+                                                  self);
+
+  return TRUE;
+
+ELEMENT_ERROR:
+  unref_element (appsrc);
+  unref_element (videocrop);
+  unref_element (gtksink);
+  unref_element (display_convert);
+  unref_element (crop_convert);
+  unref_element (crop_filter);
+  unref_element (tee);
+  unref_element (queue1);
+  unref_element (queue2);
+  unref_element (fakesink);
 
   return set_screencast_error (error,
                                G_IO_ERROR_NOT_SUPPORTED,

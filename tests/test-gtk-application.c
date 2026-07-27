@@ -49,6 +49,18 @@ kasasa_window_load_first_screenshot_uri (KasasaWindow *window,
 }
 
 void
+kasasa_window_load_first_hyprland_screencast (KasasaWindow *window,
+                                              guint32       window_handle,
+                                              gint          width,
+                                              gint          height)
+{
+  (void) window;
+  (void) window_handle;
+  (void) width;
+  (void) height;
+}
+
+void
 kasasa_window_cancel_delayed_screenshot (KasasaWindow *window)
 {
   cancel_delayed_requested = TRUE;

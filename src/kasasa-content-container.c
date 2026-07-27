@@ -1278,6 +1278,78 @@ kasasa_content_container_request_screencast (KasasaContentContainer *self)
   start_screencast_session (self, FALSE);
 }
 
+void
+kasasa_content_container_load_first_hyprland_screencast (KasasaContentContainer *self,
+                                                         guint32                 window_handle,
+                                                         gint                    width,
+                                                         gint                    height)
+{
+  KasasaWindow *window = NULL;
+  KasasaScreencast *screencast = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *error_message = NULL;
+  g_autoptr (GNotification) notification = NULL;
+  g_autoptr (GIcon) icon = NULL;
+
+  g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
+
+  window = get_root_window (self);
+  if (window == NULL)
+    return;
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  screencast = kasasa_screencast_new ();
+
+  g_signal_connect (screencast, "new-dimension",
+                    G_CALLBACK (on_screencast_new_dimension), self);
+  g_signal_connect (screencast, "eos",
+                    G_CALLBACK (on_screencast_eos), self);
+
+  if (!kasasa_screencast_show_hyprland (screencast,
+                                        window_handle,
+                                        width,
+                                        height,
+                                        &error))
+    {
+      g_warning ("Couldn't start Hyprland screencast: %s",
+                 error != NULL ? error->message : "unknown");
+      error_message = g_strconcat (_("Reason: "),
+                                   error != NULL
+                                   ? error->message
+                                   : _("Couldn't display the screencast"),
+                                   NULL);
+      g_object_unref (screencast);
+      goto FAIL;
+    }
+
+  adw_carousel_append (self->carousel, GTK_WIDGET (screencast));
+  adw_carousel_scroll_to (self->carousel, GTK_WIDGET (screencast), TRUE);
+  kasasa_content_container_update_toolbar_sensibility (self);
+
+  kasasa_window_reset_zoom (window);
+  gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
+  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
+  kasasa_content_container_request_window_resize (self);
+
+  if (g_settings_get_boolean (settings, "auto-discard-window"))
+    kasasa_window_auto_discard_window (window);
+
+  kasasa_window_miniaturize_window (window, TRUE);
+  return;
+
+FAIL:
+  icon = g_themed_icon_new ("dialog-warning-symbolic");
+  notification = g_notification_new (_("Screencast failed"));
+  g_notification_set_icon (notification, icon);
+  if (error_message != NULL)
+    g_notification_set_body (notification, error_message);
+  g_application_send_notification (g_application_get_default (),
+                                   "io.github.kelvinnovais.Kasasa",
+                                   notification);
+  gtk_window_close (GTK_WINDOW (window));
+}
+
 gboolean
 kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *self)
 {

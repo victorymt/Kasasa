@@ -62,8 +62,15 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > ```
 >
 > Bare `--window=NAME` matches `class` first, then title substring. Multiple
-> matches print candidates and exit with status 2. Targeted live screencast
-> (`--screencast --window=…`) is not implemented yet.
+> matches print candidates and exit with status 2.
+>
+> Live pin of a specific window (Hyprland toplevel-export, no Portal picker):
+>
+> ```
+> kasasa --screencast --window=Alacritty
+> kasasa --screencast --window=title:nvim
+> kasasa --screencast --window=active
+> ```
 
 > [!IMPORTANT]
 > On GNOME versions < 46, a dialog will appear to set up and take the screenshot,

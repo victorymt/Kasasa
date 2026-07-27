@@ -5,7 +5,27 @@ portal_dep = dependency('libportal')
 portal_gtk_dep = dependency('libportal-gtk4')
 gstreamer_dep = dependency('gstreamer-1.0')
 gstreamer_video_dep = dependency('gstreamer-video-1.0')
+gstreamer_app_dep = dependency('gstreamer-app-1.0')
+json_glib_dep = dependency('json-glib-1.0')
+wayland_client_dep = dependency('wayland-client')
+wayland_scanner = find_program('wayland-scanner')
 math_dep = cc.find_library('m', required: true)
+rt_dep = cc.find_library('rt', required: false)
+
+toplevel_export_xml = files('../protocols/hyprland-toplevel-export-v1.xml')
+toplevel_export_client_h = custom_target(
+  'test-hyprland-toplevel-export-v1-client.h',
+  input: toplevel_export_xml,
+  output: 'hyprland-toplevel-export-v1-client.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+toplevel_export_protocol_c = custom_target(
+  'test-hyprland-toplevel-export-v1-protocol.c',
+  input: toplevel_export_xml,
+  output: 'hyprland-toplevel-export-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+hyprland_protocol_gen = [toplevel_export_client_h, toplevel_export_protocol_c]
 
 zoom_test = executable(
   'test-zoom',
@@ -79,16 +99,17 @@ test(
   timeout: 30,
 )
 
-json_glib_dep = dependency('json-glib-1.0')
-
 window_query_test = executable(
   'test-window-query',
   [
     'test-window-query.c',
     '../src/kasasa-window-query.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
   ],
-  include_directories: include_directories('../src'),
-  dependencies: [glib_dep, json_glib_dep],
+  include_directories: include_directories('../src', '.'),
+  dependencies: [glib_dep, json_glib_dep, wayland_client_dep, rt_dep],
 )
 
 test(
@@ -109,13 +130,21 @@ gtk_screenshot_test = executable(
     '../src/kasasa-screencast.c',
     '../src/kasasa-crop.c',
     '../src/kasasa-source.c',
+    '../src/kasasa-window-query.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
   ],
-  include_directories: include_directories('../src'),
+  include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
     portal_dep,
     gstreamer_dep,
     gstreamer_video_dep,
+    gstreamer_app_dep,
+    json_glib_dep,
+    wayland_client_dep,
+    rt_dep,
   ],
 )
 
@@ -139,9 +168,12 @@ gtk_application_test = executable(
     '../src/kasasa-application.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-capture.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
   ],
-  include_directories: include_directories('../src'),
-  dependencies: [adwaita_dep, json_glib_dep],
+  include_directories: include_directories('../src', '.'),
+  dependencies: [adwaita_dep, json_glib_dep, wayland_client_dep, rt_dep],
 )
 
 test(
@@ -200,16 +232,24 @@ gtk_content_container_test = executable(
     '../src/kasasa-screencast.c',
     '../src/kasasa-crop.c',
     '../src/kasasa-source.c',
+    '../src/kasasa-window-query.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
     test_app_resources,
   ],
-  include_directories: include_directories('../src'),
+  include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
     portal_dep,
     portal_gtk_dep,
     gstreamer_dep,
     gstreamer_video_dep,
+    gstreamer_app_dep,
     math_dep,
+    json_glib_dep,
+    wayland_client_dep,
+    rt_dep,
   ],
 )
 
@@ -244,17 +284,23 @@ gtk_window_test = executable(
     '../src/kasasa-zoom.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-capture.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
     test_app_resources,
   ],
-  include_directories: include_directories('../src'),
+  include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
     portal_dep,
     portal_gtk_dep,
     gstreamer_dep,
     gstreamer_video_dep,
+    gstreamer_app_dep,
     math_dep,
     json_glib_dep,
+    wayland_client_dep,
+    rt_dep,
   ],
 )
 

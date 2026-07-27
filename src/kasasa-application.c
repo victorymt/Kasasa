@@ -25,6 +25,7 @@
 
 #include "kasasa-application.h"
 #include "kasasa-hyprland-capture.h"
+#include "kasasa-hyprland-stream.h"
 #include "kasasa-preferences.h"
 #include "kasasa-window-query.h"
 #include "kasasa-window.h"
@@ -101,23 +102,39 @@ run_list_windows (gboolean as_json)
   return KASASA_EXIT_OK;
 }
 
+static GtkWindow *
+ensure_pin_window (KasasaApplication *self,
+                   gboolean           keep_mapped)
+{
+  GtkWindow *window;
+
+  window = gtk_application_get_active_window (GTK_APPLICATION (self));
+  if (window != NULL)
+    {
+      gtk_window_present (window);
+      return window;
+    }
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", self,
+                         NULL);
+  gtk_window_present (window);
+  if (keep_mapped)
+    gtk_widget_set_opacity (GTK_WIDGET (window), 0.0);
+  else
+    gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
+
+  return window;
+}
+
 static int
-present_targeted_screenshot (KasasaApplication *self,
-                             const gchar       *window_spec)
+present_targeted_capture (KasasaApplication *self,
+                          const gchar       *window_spec,
+                          gboolean           screencast)
 {
   g_autoptr (KasasaWindowClient) client = NULL;
   g_autoptr (GError) error = NULL;
-  g_autofree gchar *uri = NULL;
   GtkWindow *window;
-
-  if (self->start_with_screencast)
-    {
-      g_printerr ("%s\n",
-                  _("Targeted live screencast is not implemented yet; "
-                    "use --window without --screencast for a screenshot pin, "
-                    "or --screencast alone for interactive capture."));
-      return KASASA_EXIT_ERROR;
-    }
 
   client = kasasa_window_query_resolve_live (window_spec, &error);
   if (client == NULL)
@@ -126,29 +143,55 @@ present_targeted_screenshot (KasasaApplication *self,
       return query_error_to_exit_code (error);
     }
 
-  uri = kasasa_hyprland_capture_screenshot (client, &error);
-  if (uri == NULL)
+  if (screencast)
     {
-      g_printerr ("%s\n", error != NULL ? error->message : _("Failed to capture window"));
-      return query_error_to_exit_code (error);
-    }
+      guint32 handle = 0;
 
-  window = gtk_application_get_active_window (GTK_APPLICATION (self));
-  if (window != NULL)
-    {
-      gtk_window_present (window);
-      if (KASASA_IS_WINDOW (window))
-        kasasa_window_load_first_screenshot_uri (KASASA_WINDOW (window), uri);
+      if (!kasasa_hyprland_stream_available ())
+        {
+          g_printerr ("%s\n",
+                      _("Targeted live screencast requires Hyprland Wayland"));
+          return KASASA_EXIT_UNAVAILABLE;
+        }
+
+      if (!kasasa_hyprland_stream_handle_from_address (client->address,
+                                                       &handle,
+                                                       &error))
+        {
+          g_printerr ("%s\n",
+                      error != NULL ? error->message : _("Invalid window address"));
+          return query_error_to_exit_code (error);
+        }
+
+      window = ensure_pin_window (self, TRUE);
+      if (!KASASA_IS_WINDOW (window))
+        return KASASA_EXIT_ERROR;
+
+      kasasa_window_load_first_hyprland_screencast (KASASA_WINDOW (window),
+                                                    handle,
+                                                    client->width,
+                                                    client->height);
       return KASASA_EXIT_OK;
     }
+  else
+    {
+      g_autofree gchar *uri = NULL;
 
-  window = g_object_new (KASASA_TYPE_WINDOW,
-                         "application", self,
-                         NULL);
-  gtk_window_present (window);
-  gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
-  kasasa_window_load_first_screenshot_uri (KASASA_WINDOW (window), uri);
-  return KASASA_EXIT_OK;
+      uri = kasasa_hyprland_capture_screenshot (client, &error);
+      if (uri == NULL)
+        {
+          g_printerr ("%s\n",
+                      error != NULL ? error->message : _("Failed to capture window"));
+          return query_error_to_exit_code (error);
+        }
+
+      window = ensure_pin_window (self, FALSE);
+      if (!KASASA_IS_WINDOW (window))
+        return KASASA_EXIT_ERROR;
+
+      kasasa_window_load_first_screenshot_uri (KASASA_WINDOW (window), uri);
+      return KASASA_EXIT_OK;
+    }
 }
 
 static void
@@ -211,7 +254,9 @@ kasasa_application_activate (GApplication *app)
 
   if (self->window_spec != NULL)
     {
-      present_targeted_screenshot (self, self->window_spec);
+      present_targeted_capture (self,
+                                self->window_spec,
+                                self->start_with_screencast);
       return;
     }
 
@@ -277,8 +322,7 @@ kasasa_application_command_line (GApplication            *app,
   if (g_variant_dict_lookup (options, "window", "&s", &window_spec)
       && window_spec != NULL)
     {
-      self->start_with_screencast = start_with_screencast;
-      return present_targeted_screenshot (self, window_spec);
+      return present_targeted_capture (self, window_spec, start_with_screencast);
     }
 
   present_or_create_window (self, start_with_screencast);

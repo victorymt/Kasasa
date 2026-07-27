@@ -40,4 +40,11 @@ gboolean kasasa_screencast_show (KasasaScreencast *screencast,
                                  gint              expected_height,
                                  GError           **error);
 
+/* Hyprland-native live pin of a specific window (no Portal). */
+gboolean kasasa_screencast_show_hyprland (KasasaScreencast *screencast,
+                                          guint32           window_handle,
+                                          gint              expected_width,
+                                          gint              expected_height,
+                                          GError          **error);
+
 G_END_DECLS
