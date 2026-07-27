@@ -1,6 +1,7 @@
 /* kasasa-screenshot.h
  *
  * Copyright 2024 Kelvin
+ * Copyright 2026 victorymt
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

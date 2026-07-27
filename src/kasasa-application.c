@@ -1,6 +1,7 @@
 /* kasasa-application.c
  *
  * Copyright 2024-2026 Kelvin Novais
+ * Copyright 2026 victorymt
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -369,7 +370,11 @@ kasasa_application_about_action (GSimpleAction *action,
                                  GVariant *parameter,
                                  gpointer user_data)
 {
-  static const char *developers[] = { "Kelvin Ribeiro Novais", NULL };
+  static const char *developers[] = {
+    "Kelvin Ribeiro Novais",
+    "victorymt",
+    NULL,
+  };
   KasasaApplication *self = user_data;
   GtkWindow *window = NULL;
 
@@ -384,10 +389,10 @@ kasasa_application_about_action (GSimpleAction *action,
                          "version", PACKAGE_VERSION,
                          "comments", _ ("Snip and pin useful information"
                                         "\n\nIf you liked the app ❤️, consider giving it a star ⭐:"),
-                         "issue-url", "https://github.com/KelvinNovais/Kasasa/issues",
-                         "website", "https://github.com/KelvinNovais/Kasasa",
+                         "issue-url", "https://github.com/victorymt/Kasasa/issues",
+                         "website", "https://github.com/victorymt/Kasasa",
                          "developers", developers,
-                         "copyright", "© 2024-2026 Kelvin Ribeiro Novais",
+                         "copyright", "© 2024-2026 Kelvin Ribeiro Novais\n© 2026 victorymt",
                          "license-type", GTK_LICENSE_GPL_3_0,
                          // Translators: Replace "translator-credits" with your names, one name per line
                          "translator_credits", _ ("translator-credits"),

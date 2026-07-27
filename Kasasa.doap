@@ -7,12 +7,13 @@
   <name>Kasasa</name>
   <shortdesc xml:lang="en">Snip and pin useful information</shortdesc>
   <description xml:lang="en">Clip and pin what's important to a small floating window, so you don't have to switch between windows or workspaces repeatedly.</description>
-  <homepage rdf:resource="https://github.com/KelvinNovais/Kasasa"/>
-  <bug-database rdf:resource="https://github.com/KelvinNovais/Kasasa/issues"/>
+  <homepage rdf:resource="https://github.com/victorymt/Kasasa"/>
+  <bug-database rdf:resource="https://github.com/victorymt/Kasasa/issues"/>
   <download-page rdf:resource="https://flathub.org/apps/io.github.kelvinnovais.Kasasa"/>
   <programming-language>C</programming-language>
   <platform>GTK 4</platform>
   <platform>Libadwaita</platform>
+  <license rdf:resource="https://www.gnu.org/licenses/gpl-3.0.html"/>
   <maintainer>
     <foaf:Person>
       <foaf:name>Kelvin Novais</foaf:name>
@@ -20,6 +21,17 @@
         <foaf:OnlineAccount>
           <foaf:accountServiceHomepage rdf:resource="https://github.com"/>
           <foaf:accountName>KelvinNovais</foaf:accountName>
+        </foaf:OnlineAccount>
+      </foaf:account>
+    </foaf:Person>
+  </maintainer>
+  <maintainer>
+    <foaf:Person>
+      <foaf:name>victorymt</foaf:name>
+      <foaf:account>
+        <foaf:OnlineAccount>
+          <foaf:accountServiceHomepage rdf:resource="https://github.com"/>
+          <foaf:accountName>victorymt</foaf:accountName>
         </foaf:OnlineAccount>
       </foaf:account>
     </foaf:Person>

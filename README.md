@@ -93,4 +93,34 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 
 ---
 
+## Fork
+
+This repository is a fork of the original project:
+
+- Upstream: [KelvinNovais/Kasasa](https://github.com/KelvinNovais/Kasasa)
+- This fork: [victorymt/Kasasa](https://github.com/victorymt/Kasasa)
+
+Upstream remains the canonical project for general releases and packaging.
+This fork focuses on Hyprland-oriented capture and CLI workflows.
+
+## License
+
+Kasasa is free software licensed under the
+[GNU General Public License v3.0 or later](COPYING) (`GPL-3.0-or-later`).
+
+You should have received a copy of the GNU General Public License along with
+this program (see [`COPYING`](COPYING)). If not, see
+<https://www.gnu.org/licenses/>.
+
+Copyright remains with the original author and subsequent contributors:
+
+- © 2024–2026 Kelvin Ribeiro Novais
+- © 2026 victorymt
+
+The Wayland protocol description in
+`protocols/hyprland-toplevel-export-v1.xml` is copyrighted by its original
+authors and keeps its own license terms as distributed upstream.
+
+---
+
 _¹ "Kasasa" is an approximation to "قصاصة", an Arabic term meaning a scrap of paper torn from a book, a magazine or a newspaper._
