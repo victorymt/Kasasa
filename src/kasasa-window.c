@@ -99,6 +99,20 @@ kasasa_window_take_first_screenshot (KasasaWindow *self)
 }
 
 void
+kasasa_window_take_first_screencast (KasasaWindow *self)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+  kasasa_content_container_request_first_screencast (self->content_container);
+}
+
+void
+kasasa_window_request_screencast (KasasaWindow *self)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+  kasasa_content_container_request_screencast (self->content_container);
+}
+
+void
 kasasa_window_cancel_delayed_screenshot (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));

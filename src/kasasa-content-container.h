@@ -59,6 +59,8 @@ void
 kasasa_content_container_carousel_set_interactive (KasasaContentContainer *cc,
                                                    gboolean                interactive);
 void kasasa_content_container_request_first_screenshot (KasasaContentContainer *cc);
+void kasasa_content_container_request_first_screencast (KasasaContentContainer *cc);
+void kasasa_content_container_request_screencast (KasasaContentContainer *cc);
 gboolean kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_window_resize (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_zoom_resize (KasasaContentContainer *cc);

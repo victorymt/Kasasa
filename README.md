@@ -37,6 +37,17 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > `no_anim on` is important for scroll-zoom: otherwise Hyprland smoothly
 > animates the window border while the app has already changed the screenshot
 > size, so the two look out of sync.
+>
+> Bind separate shortcuts for screenshot and screencast, for example:
+>
+> ```
+> bind = SUPER, Y, exec, kasasa
+> bind = SUPER SHIFT, Y, exec, kasasa --screencast
+> ```
+>
+> `kasasa` starts with an interactive screenshot. `kasasa --screencast` (or
+> `-c`) starts directly with the screencast picker. If Kasasa is already
+> running, `--screencast` appends a new screencast to the existing window.
 
 > [!IMPORTANT]
 > On GNOME versions < 46, a dialog will appear to set up and take the screenshot,

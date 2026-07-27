@@ -29,6 +29,8 @@
 struct _KasasaApplication
 {
   AdwApplication parent_instance;
+
+  gboolean start_with_screencast;
 };
 
 G_DEFINE_FINAL_TYPE (KasasaApplication, kasasa_application, ADW_TYPE_APPLICATION)
@@ -40,36 +42,82 @@ kasasa_application_new (const char *application_id)
 
   return g_object_new (KASASA_TYPE_APPLICATION,
                        "application-id", application_id,
-                       "flags", G_APPLICATION_DEFAULT_FLAGS,
+                       "flags", G_APPLICATION_HANDLES_COMMAND_LINE,
                        NULL);
+}
+
+static void
+present_or_create_window (KasasaApplication *self,
+                          gboolean           start_with_screencast)
+{
+  GtkWindow *window;
+
+  window = gtk_application_get_active_window (GTK_APPLICATION (self));
+
+  // Re-activation with an existing window: raise it. If the user asked for a
+  // screencast via CLI while already running, append one instead of forcing a
+  // brand-new first capture.
+  if (window != NULL)
+    {
+      gtk_window_present (window);
+      if (start_with_screencast && KASASA_IS_WINDOW (window))
+        kasasa_window_request_screencast (KASASA_WINDOW (window));
+      return;
+    }
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", self,
+                         NULL);
+
+  gtk_window_present (window);
+
+  if (start_with_screencast)
+    {
+      // Keep the surface mapped: GStreamer gtk4paintablesink / GL needs a live
+      // Wayland surface. Hide with opacity instead of unmapping (set_visible
+      // FALSE), which triggers "Error 71 (Protocol error)" on Hyprland.
+      gtk_widget_set_opacity (GTK_WIDGET (window), 0.0);
+      kasasa_window_take_first_screencast (KASASA_WINDOW (window));
+    }
+  else
+    {
+      // Screenshots only need a portal file URI — unmap until the pin is ready.
+      gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
+      kasasa_window_take_first_screenshot (KASASA_WINDOW (window));
+    }
 }
 
 static void
 kasasa_application_activate (GApplication *app)
 {
-  GtkWindow *window;
+  KasasaApplication *self = KASASA_APPLICATION (app);
 
   g_assert (KASASA_IS_APPLICATION (app));
 
-  window = gtk_application_get_active_window (GTK_APPLICATION (app));
+  present_or_create_window (self, self->start_with_screencast);
+  self->start_with_screencast = FALSE;
+}
 
-  // Re-activation (e.g. second launch while already running): just raise the
-  // existing window instead of forcing another first screenshot.
-  if (window != NULL)
-    {
-      gtk_window_present (window);
-      return;
-    }
+static gint
+kasasa_application_handle_local_options (GApplication *app,
+                                         GVariantDict *options)
+{
+  KasasaApplication *self = KASASA_APPLICATION (app);
 
-  window = g_object_new (KASASA_TYPE_WINDOW,
-                         "application", app,
-                         NULL);
+  self->start_with_screencast = g_variant_dict_contains (options, "screencast");
+  return -1;
+}
 
-  gtk_window_present (window);
+static int
+kasasa_application_command_line (GApplication            *app,
+                                 GApplicationCommandLine *cmdline)
+{
+  KasasaApplication *self = KASASA_APPLICATION (app);
+  GVariantDict *options = g_application_command_line_get_options_dict (cmdline);
+  gboolean start_with_screencast = g_variant_dict_contains (options, "screencast");
 
-  // The window will be set to 'visible = TRUE' after the screenshot is taken
-  gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
-  kasasa_window_take_first_screenshot (KASASA_WINDOW (window));
+  present_or_create_window (self, start_with_screencast);
+  return 0;
 }
 
 static void
@@ -91,6 +139,8 @@ kasasa_application_class_init (KasasaApplicationClass *klass)
   GApplicationClass *app_class = G_APPLICATION_CLASS (klass);
 
   app_class->activate = kasasa_application_activate;
+  app_class->handle_local_options = kasasa_application_handle_local_options;
+  app_class->command_line = kasasa_application_command_line;
 }
 
 static void
@@ -172,6 +222,23 @@ static const GActionEntry app_actions[] = {
 static void
 kasasa_application_init (KasasaApplication *self)
 {
+  const GOptionEntry entries[] = {
+    {
+      .long_name = "screencast",
+      .short_name = 'c',
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_NONE,
+      .arg_data = NULL,
+      .description = N_("Start by pinning a screencast instead of a screenshot"),
+      .arg_description = NULL,
+    },
+    { NULL }
+  };
+
+  self->start_with_screencast = FALSE;
+
+  g_application_add_main_option_entries (G_APPLICATION (self), entries);
+
   g_action_map_add_action_entries (G_ACTION_MAP (self),
                                    app_actions,
                                    G_N_ELEMENTS (app_actions),

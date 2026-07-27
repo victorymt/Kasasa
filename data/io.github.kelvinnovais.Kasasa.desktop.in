@@ -6,6 +6,11 @@ Icon=io.github.kelvinnovais.Kasasa
 Terminal=false
 Type=Application
 Categories=Utility;Graphics;GTK;GNOME;
-Keywords=screenshot;clipping;snip;image;pin;reference;
+Keywords=screenshot;clipping;snip;image;pin;reference;screencast;
 StartupNotify=false
 X-GNOME-UsesNotifications=true
+Actions=screencast;
+
+[Desktop Action screencast]
+Name=Pin a screencast
+Exec=kasasa --screencast

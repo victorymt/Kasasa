@@ -581,20 +581,18 @@ kasasa_screencast_show (KasasaScreencast *self,
 {
   g_autofree gchar *node_id_str = NULL;
   GstElement *pipewire_element = NULL;
-  GstElement *filter = NULL;
   GstElement *videocrop = NULL;
   GstElement *gtksink = NULL;
-  GstElement *sink = NULL;
-  GstElement *convert = NULL;
-  g_autoptr (GstCaps) caps = NULL;
+  GstElement *display_convert = NULL;
+  GstElement *crop_convert = NULL;
+  GstElement *crop_filter = NULL;
+  g_autoptr (GstCaps) crop_caps = NULL;
   GstElement *tee = NULL;
   GstElement *queue1 = NULL;
   GstElement *queue2 = NULL;
   GstElement *fakesink = NULL;
-  g_autoptr (GdkGLContext) gl_context = NULL;
   g_autoptr (GdkPaintable) paintable = NULL;
   GstStateChangeReturn ret;
-  gboolean use_gl;
 
   g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
@@ -622,66 +620,59 @@ kasasa_screencast_show (KasasaScreencast *self,
   pipewire_element = gst_element_factory_make ("pipewiresrc", "pipewire_element");
   gtksink = gst_element_factory_make ("gtk4paintablesink", "sink");
   videocrop = gst_element_factory_make ("videocrop", "videocrop");
-  caps = gst_caps_from_string ("video/x-raw");
-  filter = gst_element_factory_make ("capsfilter", "filter");
+  display_convert = gst_element_factory_make ("videoconvert", "display_convert");
+  crop_convert = gst_element_factory_make ("videoconvert", "crop_convert");
+  crop_filter = gst_element_factory_make ("capsfilter", "crop_filter");
+  crop_caps = gst_caps_from_string ("video/x-raw,format=BGRx");
   tee = gst_element_factory_make ("tee", "tee");
   queue1 = gst_element_factory_make ("queue", "queue1");
   queue2 = gst_element_factory_make ("queue", "queue2");
   fakesink = gst_element_factory_make ("fakesink", "fakesink");
 
   if (self->pipeline == NULL || pipewire_element == NULL || tee == NULL
-      || queue1 == NULL || filter == NULL || videocrop == NULL
-      || gtksink == NULL || queue2 == NULL || fakesink == NULL || caps == NULL)
+      || queue1 == NULL || queue2 == NULL || display_convert == NULL
+      || videocrop == NULL || gtksink == NULL || crop_convert == NULL
+      || crop_filter == NULL || fakesink == NULL || crop_caps == NULL)
     goto ELEMENT_ERROR;
-
-  g_object_set (filter, "caps", caps, NULL);
 
   g_object_get (gtksink, "paintable", &paintable, NULL);
   if (paintable == NULL)
     goto ELEMENT_ERROR;
 
-  g_object_get (paintable, "gl-context", &gl_context, NULL);
-  use_gl = gl_context != NULL;
-
-  if (use_gl)
-    sink = gst_element_factory_make ("glsinkbin", "glsinkbin");
-  else
-    convert = gst_element_factory_make ("videoconvert", "convert");
-
-  if ((use_gl && sink == NULL) || (!use_gl && convert == NULL))
-    goto ELEMENT_ERROR;
-
+  /* Always download DMA-BUF / GL buffers to system memory before crop +
+   * display. Zero-copy GL (glsinkbin) blacks out GPU clients such as
+   * Alacritty with nvim/helix on Hyprland. */
   g_object_set (pipewire_element,
-                "fd",  fd,
+                "fd", fd,
                 "path", node_id_str,
+                "use-bufferpool", FALSE,
                 NULL);
+  g_object_set (crop_filter, "caps", crop_caps, NULL);
+  g_object_set (fakesink,
+                "sync", FALSE,
+                "async", FALSE,
+                "enable-last-sample", TRUE,
+                NULL);
+  g_object_set (gtksink, "sync", FALSE, NULL);
 
   g_debug ("fd: %d; node_id: %s", fd, node_id_str);
+  g_info ("Screencast pipeline uses system-memory convert path");
 
-  if (use_gl)
-    {
-      g_info ("Using GL");
-      g_object_set (sink, "sink", gtksink, NULL);
-    }
-  else
-    g_info ("Not using GL");
-
+  /* pipewiresrc
+   *   ├─ queue1 → videoconvert → videocrop → gtk4paintablesink
+   *   └─ queue2 → videoconvert → BGRx → fakesink (crop analysis)
+   */
   gst_bin_add_many (GST_BIN (self->pipeline),
-                    pipewire_element, tee, queue1, filter, videocrop,
-                    queue2, fakesink, NULL);
-  if (use_gl)
-    gst_bin_add (GST_BIN (self->pipeline), sink);
-  else
-    gst_bin_add_many (GST_BIN (self->pipeline), convert, gtksink, NULL);
+                    pipewire_element, tee,
+                    queue1, display_convert, videocrop, gtksink,
+                    queue2, crop_convert, crop_filter, fakesink,
+                    NULL);
 
-  if (!gst_element_link_many (pipewire_element,
-                              tee, queue1, filter, videocrop, NULL)
-      || (use_gl && !gst_element_link (videocrop, sink))
-      || (!use_gl && !gst_element_link_many (videocrop,
-                                             convert,
-                                             gtksink,
-                                             NULL))
-      || !gst_element_link_many (tee, queue2, fakesink, NULL))
+  if (!gst_element_link (pipewire_element, tee)
+      || !gst_element_link_many (tee, queue1, display_convert, videocrop,
+                                 gtksink, NULL)
+      || !gst_element_link_many (tee, queue2, crop_convert, crop_filter,
+                                 fakesink, NULL))
     {
       return set_screencast_error (error,
                                    G_IO_ERROR_FAILED,
@@ -726,11 +717,11 @@ kasasa_screencast_show (KasasaScreencast *self,
 
 ELEMENT_ERROR:
   unref_element (pipewire_element);
-  unref_element (filter);
   unref_element (videocrop);
   unref_element (gtksink);
-  unref_element (sink);
-  unref_element (convert);
+  unref_element (display_convert);
+  unref_element (crop_convert);
+  unref_element (crop_filter);
   unref_element (tee);
   unref_element (queue1);
   unref_element (queue2);

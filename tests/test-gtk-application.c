@@ -12,6 +12,8 @@
 
 static gboolean cancel_delayed_requested;
 static guint first_screenshot_requests;
+static guint first_screencast_requests;
+static guint screencast_requests;
 
 /* Keep this test focused on application lifecycle rather than the real window. */
 GType
@@ -24,6 +26,18 @@ void
 kasasa_window_take_first_screenshot (KasasaWindow *window)
 {
   first_screenshot_requests++;
+}
+
+void
+kasasa_window_take_first_screencast (KasasaWindow *window)
+{
+  first_screencast_requests++;
+}
+
+void
+kasasa_window_request_screencast (KasasaWindow *window)
+{
+  screencast_requests++;
 }
 
 void
@@ -65,20 +79,77 @@ test_repeated_activation_reuses_window (void)
   g_assert_no_error (error);
 
   first_screenshot_requests = 0;
+  first_screencast_requests = 0;
+  screencast_requests = 0;
   g_application_activate (G_APPLICATION (application));
   first_window = gtk_application_get_active_window (
     GTK_APPLICATION (application));
 
   g_assert_nonnull (first_window);
   g_assert_cmpuint (first_screenshot_requests, ==, 1);
+  g_assert_cmpuint (first_screencast_requests, ==, 0);
 
   g_application_activate (G_APPLICATION (application));
 
   g_assert_true (gtk_application_get_active_window (
                    GTK_APPLICATION (application)) == first_window);
   g_assert_cmpuint (first_screenshot_requests, ==, 1);
+  g_assert_cmpuint (screencast_requests, ==, 0);
 
   gtk_window_destroy (first_window);
+}
+
+static void
+test_screencast_option_starts_screencast (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GVariantDict) options = NULL;
+  GApplicationClass *app_class;
+  GtkWindow *window;
+
+  application_id = g_strdup_printf ("io.github.kelvinnovais.Kasasa.Screencast%u",
+                                    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  g_assert_true (g_application_register (G_APPLICATION (application),
+                                         NULL,
+                                         &error));
+  g_assert_no_error (error);
+
+  first_screenshot_requests = 0;
+  first_screencast_requests = 0;
+  screencast_requests = 0;
+
+  app_class = G_APPLICATION_GET_CLASS (application);
+  options = g_variant_dict_new (NULL);
+  g_variant_dict_insert (options, "screencast", "b", TRUE);
+  g_assert_cmpint (app_class->handle_local_options (G_APPLICATION (application),
+                                                    options),
+                   ==,
+                   -1);
+
+  g_application_activate (G_APPLICATION (application));
+  window = gtk_application_get_active_window (GTK_APPLICATION (application));
+
+  g_assert_nonnull (window);
+  g_assert_cmpuint (first_screenshot_requests, ==, 0);
+  g_assert_cmpuint (first_screencast_requests, ==, 1);
+  g_assert_cmpuint (screencast_requests, ==, 0);
+
+  /* Second --screencast while already running should append a screencast. */
+  g_assert_cmpint (app_class->handle_local_options (G_APPLICATION (application),
+                                                    options),
+                   ==,
+                   -1);
+  g_application_activate (G_APPLICATION (application));
+
+  g_assert_true (gtk_application_get_active_window (
+                   GTK_APPLICATION (application)) == window);
+  g_assert_cmpuint (first_screencast_requests, ==, 1);
+  g_assert_cmpuint (screencast_requests, ==, 1);
+
+  gtk_window_destroy (window);
 }
 
 static void
@@ -96,7 +167,7 @@ test_application_lifecycle (void)
 
   g_assert_cmpint (g_application_get_flags (G_APPLICATION (application)),
                    ==,
-                   G_APPLICATION_DEFAULT_FLAGS);
+                   G_APPLICATION_HANDLES_COMMAND_LINE);
   g_assert_true (g_application_register (G_APPLICATION (application),
                                          NULL,
                                          &error));
@@ -136,6 +207,8 @@ main (int argc, char **argv)
   adw_init ();
   g_test_add_func ("/gtk/application/repeated-activation",
                    test_repeated_activation_reuses_window);
+  g_test_add_func ("/gtk/application/screencast-option",
+                   test_screencast_option_starts_screencast);
   g_test_add_func ("/gtk/application/lifecycle", test_application_lifecycle);
 
   return g_test_run ();

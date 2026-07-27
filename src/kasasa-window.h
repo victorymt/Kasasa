@@ -94,6 +94,8 @@ void kasasa_window_miniaturize_window (KasasaWindow *window,
 void kasasa_window_block_miniaturization (KasasaWindow *window,
                                           gboolean      block);
 void kasasa_window_take_first_screenshot (KasasaWindow *window);
+void kasasa_window_take_first_screencast (KasasaWindow *window);
+void kasasa_window_request_screencast (KasasaWindow *window);
 void kasasa_window_cancel_delayed_screenshot (KasasaWindow *window);
 
 G_END_DECLS
