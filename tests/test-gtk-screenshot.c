@@ -177,6 +177,26 @@ test_screencast_rejects_invalid_connection (void)
 }
 
 static void
+test_screencast_pipeline_preference (void)
+{
+  KasasaScreencastPipelineMode expected_gpu_mode;
+
+  expected_gpu_mode = kasasa_screencast_pipeline_gpu_available ()
+                      ? KASASA_SCREENCAST_PIPELINE_GPU
+                      : KASASA_SCREENCAST_PIPELINE_CPU;
+
+  g_assert_cmpint (kasasa_screencast_pipeline_select_mode ("cpu"),
+                   ==,
+                   KASASA_SCREENCAST_PIPELINE_CPU);
+  g_assert_cmpint (kasasa_screencast_pipeline_select_mode ("gpu"),
+                   ==,
+                   expected_gpu_mode);
+  g_assert_cmpint (kasasa_screencast_pipeline_select_mode ("invalid"),
+                   ==,
+                   KASASA_SCREENCAST_PIPELINE_CPU);
+}
+
+static void
 test_cpu_screencast_pipeline (void)
 {
   KasasaScreencastPipeline pipeline = { 0 };
@@ -540,6 +560,8 @@ main (int argc, char **argv)
                    test_content_fit_ignores_rounding_gaps);
   g_test_add_func ("/gtk/screencast/invalid-connection",
                    test_screencast_rejects_invalid_connection);
+  g_test_add_func ("/gtk/screencast/pipeline-preference",
+                   test_screencast_pipeline_preference);
   g_test_add_func ("/gtk/screencast/cpu-pipeline",
                    test_cpu_screencast_pipeline);
   g_test_add_func ("/gtk/screencast/early-failure-closes-fd",

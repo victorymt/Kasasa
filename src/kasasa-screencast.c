@@ -593,7 +593,9 @@ kasasa_screencast_show (KasasaScreencast *self,
 
 {
   KasasaScreencastPipelineMode mode;
+  g_autoptr (GSettings) settings = NULL;
   g_autoptr (GError) pipeline_error = NULL;
+  g_autofree gchar *pipeline_preference = NULL;
   gint fallback_fd;
 
   g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
@@ -617,9 +619,10 @@ kasasa_screencast_show (KasasaScreencast *self,
   if (expected_width > 0 && expected_height > 0)
     new_dimension (self, expected_width, expected_height);
 
-  mode = kasasa_screencast_pipeline_gpu_available ()
-         ? KASASA_SCREENCAST_PIPELINE_GPU
-         : KASASA_SCREENCAST_PIPELINE_CPU;
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  pipeline_preference = g_settings_get_string (settings,
+                                                "screencast-pipeline");
+  mode = kasasa_screencast_pipeline_select_mode (pipeline_preference);
   if (!activate_portal_pipeline (self, fd, node_id, mode, &pipeline_error)
       && mode == KASASA_SCREENCAST_PIPELINE_GPU)
     {

@@ -63,6 +63,16 @@ kasasa_screencast_pipeline_gpu_available (void)
   return TRUE;
 }
 
+KasasaScreencastPipelineMode
+kasasa_screencast_pipeline_select_mode (const gchar *preference)
+{
+  if (g_strcmp0 (preference, "gpu") == 0
+      && kasasa_screencast_pipeline_gpu_available ())
+    return KASASA_SCREENCAST_PIPELINE_GPU;
+
+  return KASASA_SCREENCAST_PIPELINE_CPU;
+}
+
 static gboolean
 build_gpu_pipeline (GstElement *pipeline,
                     GstElement *pipewire,

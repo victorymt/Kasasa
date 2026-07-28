@@ -57,6 +57,7 @@ reset_settings (GSettings *settings)
     "controls-timeout",
     "occupy-screen",
     "image-switch-resize-mode",
+    "screencast-pipeline",
     "auto-discard-window",
     "auto-discard-window-time",
     "screenshot-delay",
@@ -131,11 +132,13 @@ test_all_settings_bindings_persist (void)
 {
   g_autoptr (GSettings) settings = NULL;
   g_autoptr (KasasaPreferences) preferences = NULL;
+  g_autofree gchar *pipeline_preference = NULL;
   AdwExpanderRow *opacity_row;
   AdwSwitchRow *auto_hide_row;
   AdwSwitchRow *auto_discard_row;
   AdwSwitchRow *auto_trash_row;
   AdwComboRow *image_switch_resize_combo;
+  AdwToggleGroup *screencast_pipeline_toggle;
   AdwSpinRow *opacity_spin;
   AdwSpinRow *controls_timeout_spin;
   AdwSpinRow *occupy_screen_spin;
@@ -158,6 +161,8 @@ test_all_settings_bindings_persist (void)
     get_preferences_child (preferences, "occupy_screen_spin_row"));
   image_switch_resize_combo = ADW_COMBO_ROW (
     get_preferences_child (preferences, "image_switch_resize_combo"));
+  screencast_pipeline_toggle = ADW_TOGGLE_GROUP (
+    get_preferences_child (preferences, "screencast_pipeline_toggle"));
   auto_discard_row = ADW_SWITCH_ROW (
     get_preferences_child (preferences, "auto_discard_window_switch"));
   auto_discard_time_spin = ADW_SPIN_ROW (
@@ -176,6 +181,7 @@ test_all_settings_bindings_persist (void)
   gtk_adjustment_set_value (
     adw_spin_row_get_adjustment (occupy_screen_spin), 42.0);
   adw_combo_row_set_selected (image_switch_resize_combo, 2);
+  adw_toggle_group_set_active_name (screencast_pipeline_toggle, "cpu");
   adw_switch_row_set_active (auto_discard_row, TRUE);
   gtk_adjustment_set_value (
     adw_spin_row_get_adjustment (auto_discard_time_spin), 17.0);
@@ -193,6 +199,9 @@ test_all_settings_bindings_persist (void)
   g_assert_cmpuint (g_settings_get_uint (settings, "image-switch-resize-mode"),
                     ==,
                     2);
+  pipeline_preference = g_settings_get_string (settings,
+                                                "screencast-pipeline");
+  g_assert_cmpstr (pipeline_preference, ==, "cpu");
   g_assert_true (g_settings_get_boolean (settings, "auto-discard-window"));
   g_assert_cmpfloat_with_epsilon (
     g_settings_get_double (settings, "auto-discard-window-time"),
@@ -232,6 +241,11 @@ test_all_settings_bindings_persist (void)
                         preferences, "image_switch_resize_combo"))),
                     ==,
                     2);
+  g_assert_cmpstr (adw_toggle_group_get_active_name (
+                     ADW_TOGGLE_GROUP (get_preferences_child (
+                       preferences, "screencast_pipeline_toggle"))),
+                   ==,
+                   "cpu");
   g_assert_true (adw_switch_row_get_active (
     ADW_SWITCH_ROW (get_preferences_child (preferences,
                                            "auto_discard_window_switch"))));

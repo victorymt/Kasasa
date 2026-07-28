@@ -37,6 +37,7 @@ struct _KasasaPreferences
   GtkWidget             *occupy_screen_adjustment;
 
   GtkWidget             *image_switch_resize_combo;
+  GtkWidget             *screencast_pipeline_toggle;
 
   GtkWidget             *auto_discard_window_switch;
   GtkWidget             *auto_discard_window_adjustment;
@@ -114,6 +115,7 @@ kasasa_preferences_class_init (KasasaPreferencesClass *klass)
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, occupy_screen_adjustment);
 
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, image_switch_resize_combo);
+  gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, screencast_pipeline_toggle);
 
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, auto_discard_window_switch);
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, auto_discard_window_adjustment);
@@ -153,6 +155,11 @@ kasasa_preferences_init (KasasaPreferences *self)
   // Image switching
   g_settings_bind (self->settings, "image-switch-resize-mode",
                    self->image_switch_resize_combo, "selected",
+                   G_SETTINGS_BIND_DEFAULT);
+
+  // Screencast pipeline
+  g_settings_bind (self->settings, "screencast-pipeline",
+                   self->screencast_pipeline_toggle, "active-name",
                    G_SETTINGS_BIND_DEFAULT);
 
   // Auto discard window

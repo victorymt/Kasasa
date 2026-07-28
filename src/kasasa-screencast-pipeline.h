@@ -25,6 +25,9 @@ typedef struct
 
 gboolean kasasa_screencast_pipeline_gpu_available (void);
 
+KasasaScreencastPipelineMode kasasa_screencast_pipeline_select_mode (
+  const gchar *preference);
+
 gboolean kasasa_screencast_pipeline_build_portal (
   gint                         fd,
   guint                        node_id,

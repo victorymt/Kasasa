@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <requires lib="Adw" version="1.4"/>
+  <requires lib="Adw" version="1.7"/>
   <template class="KasasaPreferences" parent="AdwPreferencesDialog">
     <property name="search-enabled">false</property>
     <child>
@@ -127,6 +127,36 @@
                     <property name="value">1</property>
                   </object>
                 </property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <!-- SCREENCAST PIPELINE -->
+        <child>
+          <object class="AdwPreferencesGroup">
+            <property name="title" translatable="yes">Screencast</property>
+            <child>
+              <object class="AdwActionRow">
+                <property name="title" translatable="yes">Rendering path</property>
+                <child type="suffix">
+                  <object class="AdwToggleGroup" id="screencast_pipeline_toggle">
+                    <property name="valign">center</property>
+                    <property name="homogeneous">true</property>
+                    <child>
+                      <object class="AdwToggle">
+                        <property name="label">CPU</property>
+                        <property name="name">cpu</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwToggle">
+                        <property name="label">GPU</property>
+                        <property name="name">gpu</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
               </object>
             </child>
           </object>
