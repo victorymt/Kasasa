@@ -69,13 +69,15 @@ struct _KasasaWindow
   gdouble  zoom_to_height;
   gint64   zoom_last_frame_time;
   guint    zoom_tick_id;
-  guint    resize_animations_pending;
+  gint     resize_from_width;
+  gint     resize_from_height;
+  gint     resize_to_width;
+  gint     resize_to_height;
 
   /* Instance variables */
   GSettings *settings;
   AdwAnimation *window_opacity_animation;
-  AdwAnimation *resize_height_animation;
-  AdwAnimation *resize_width_animation;
+  AdwAnimation *resize_animation;
   KasasaSource hide_header_bar_source;
   KasasaSource hide_toolbar_source;
   KasasaSource reveal_header_bar_source;
@@ -537,14 +539,10 @@ kasasa_window_set_resize_lock (KasasaWindow *self,
 static void
 kasasa_window_stop_resize_animations (KasasaWindow *self)
 {
-  gboolean running =
-    ADW_IS_ANIMATION (self->resize_height_animation)
-    || ADW_IS_ANIMATION (self->resize_width_animation);
   gint w, h;
 
-  if (!running)
+  if (!ADW_IS_ANIMATION (self->resize_animation))
     {
-      self->resize_animations_pending = 0;
       kasasa_window_set_resize_lock (self, FALSE);
       return;
     }
@@ -554,21 +552,31 @@ kasasa_window_stop_resize_animations (KasasaWindow *self)
    * window edges flash. */
   kasasa_window_get_visual_size (self, &w, &h);
 
-  if (ADW_IS_ANIMATION (self->resize_height_animation))
-    {
-      adw_animation_pause (self->resize_height_animation);
-      g_clear_object (&self->resize_height_animation);
-    }
-
-  if (ADW_IS_ANIMATION (self->resize_width_animation))
-    {
-      adw_animation_pause (self->resize_width_animation);
-      g_clear_object (&self->resize_width_animation);
-    }
+  adw_animation_pause (self->resize_animation);
+  g_clear_object (&self->resize_animation);
 
   gtk_window_set_default_size (GTK_WINDOW (self), w, h);
-  self->resize_animations_pending = 0;
   kasasa_window_set_resize_lock (self, FALSE);
+}
+
+static void
+on_resize_animation_value (gdouble  value,
+                           gpointer user_data)
+{
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+  gint height;
+  gint width;
+
+  width = (gint) round (self->resize_from_width
+                        + (self->resize_to_width
+                           - self->resize_from_width) * value);
+  height = (gint) round (self->resize_from_height
+                         + (self->resize_to_height
+                            - self->resize_from_height) * value);
+
+  gtk_window_set_default_size (GTK_WINDOW (self),
+                               MAX (width, 1),
+                               MAX (height, 1));
 }
 
 static void
@@ -577,12 +585,10 @@ on_resize_animation_done (AdwAnimation *animation,
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
 
-  if (self->resize_animations_pending == 0)
-    return;
-
-  self->resize_animations_pending--;
-  if (self->resize_animations_pending == 0)
-    kasasa_window_set_resize_lock (self, FALSE);
+  gtk_window_set_default_size (GTK_WINDOW (self),
+                               self->resize_to_width,
+                               self->resize_to_height);
+  kasasa_window_set_resize_lock (self, FALSE);
 }
 
 /*
@@ -630,8 +636,7 @@ kasasa_window_resize_window_internal (KasasaWindow *self,
                                       gboolean      animate,
                                       gboolean      from_zoom)
 {
-  AdwAnimationTarget *target_h = NULL;
-  AdwAnimationTarget *target_w = NULL;
+  AdwAnimationTarget *target = NULL;
   gint from_width, from_height;
   gint target_w_px, target_h_px;
   gboolean use_animation;
@@ -680,39 +685,29 @@ kasasa_window_resize_window_internal (KasasaWindow *self,
   // Disable the carousel navigation while the window is being resized
   kasasa_window_set_resize_lock (self, TRUE);
 
-  /* Content load / miniaturize: keep the previous dual property tweens. */
+  /* Keep width and height on one timeline and submit one configure request per
+   * frame. Independent property animations visibly oscillate on Wayland. */
   gtk_window_set_default_size (GTK_WINDOW (self), from_width, from_height);
 
-  target_h =
-      adw_property_animation_target_new (G_OBJECT (self), "default-height");
-  target_w =
-      adw_property_animation_target_new (G_OBJECT (self), "default-width");
-
-  self->resize_height_animation = adw_timed_animation_new (
+  self->resize_from_width = from_width;
+  self->resize_from_height = from_height;
+  self->resize_to_width = target_w_px;
+  self->resize_to_height = target_h_px;
+  target = adw_callback_animation_target_new (on_resize_animation_value,
+                                               self,
+                                               NULL);
+  self->resize_animation = adw_timed_animation_new (
       GTK_WIDGET (self),
-      (gdouble) from_height,
-      new_height,
+      0.0,
+      1.0,
       WINDOW_RESIZING_DURATION,
-      target_h);
-  adw_timed_animation_set_easing (ADW_TIMED_ANIMATION (self->resize_height_animation),
+      target);
+  adw_timed_animation_set_easing (ADW_TIMED_ANIMATION (self->resize_animation),
                                   ADW_EASE_OUT_CUBIC);
 
-  self->resize_width_animation = adw_timed_animation_new (
-      GTK_WIDGET (self),
-      (gdouble) from_width,
-      new_width,
-      WINDOW_RESIZING_DURATION,
-      target_w);
-  adw_timed_animation_set_easing (ADW_TIMED_ANIMATION (self->resize_width_animation),
-                                  ADW_EASE_OUT_CUBIC);
-
-  self->resize_animations_pending = 2;
-  g_signal_connect (self->resize_width_animation, "done",
+  g_signal_connect (self->resize_animation, "done",
                     G_CALLBACK (on_resize_animation_done), self);
-  g_signal_connect (self->resize_height_animation, "done",
-                    G_CALLBACK (on_resize_animation_done), self);
-  adw_animation_play (self->resize_width_animation);
-  adw_animation_play (self->resize_height_animation);
+  adw_animation_play (self->resize_animation);
 }
 
 // Resize the window with an animation (content change, miniaturize, …)
@@ -1812,9 +1807,11 @@ kasasa_window_init (KasasaWindow *self)
   self->zoom_to_height = 0;
   self->zoom_last_frame_time = 0;
   self->zoom_tick_id = 0;
-  self->resize_animations_pending = 0;
-  self->resize_height_animation = NULL;
-  self->resize_width_animation = NULL;
+  self->resize_from_width = 0;
+  self->resize_from_height = 0;
+  self->resize_to_width = 0;
+  self->resize_to_height = 0;
+  self->resize_animation = NULL;
   self->hide_header_bar_source.id = 0;
   self->hide_toolbar_source.id = 0;
   self->reveal_header_bar_source.id = 0;

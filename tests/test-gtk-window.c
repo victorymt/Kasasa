@@ -35,6 +35,24 @@ typedef struct
   gboolean content_was_empty;
 } CloseData;
 
+typedef struct
+{
+  gint from_width;
+  gint from_height;
+  gint to_width;
+  gint to_height;
+  gint previous_width;
+  gint previous_height;
+  gint previous_allocated_width;
+  gint previous_allocated_height;
+  gdouble max_progress_delta;
+  gdouble max_allocation_progress_delta;
+  guint samples;
+  guint allocation_samples;
+  gboolean reversed;
+  gboolean allocation_reversed;
+} ResizeTrace;
+
 static GtkWidget *
 find_widget_by_id (GtkWidget  *widget,
                    const char *id)
@@ -224,6 +242,165 @@ wait_for_window_allocation (GtkWindow *window,
   while (g_get_monotonic_time () < deadline);
 
   return FALSE;
+}
+
+static void
+trace_resize_progress (GtkWindow  *window,
+                       GParamSpec *pspec,
+                       gpointer    user_data)
+{
+  ResizeTrace *trace = user_data;
+  gdouble height_progress;
+  gdouble width_progress;
+  gint height;
+  gint width;
+
+  gtk_window_get_default_size (window, &width, &height);
+  if (width > trace->previous_width || height > trace->previous_height)
+    trace->reversed = TRUE;
+
+  width_progress = (gdouble) (trace->from_width - width)
+                   / (trace->from_width - trace->to_width);
+  height_progress = (gdouble) (trace->from_height - height)
+                    / (trace->from_height - trace->to_height);
+  trace->max_progress_delta = MAX (trace->max_progress_delta,
+                                   ABS (width_progress - height_progress));
+  trace->previous_width = width;
+  trace->previous_height = height;
+  trace->samples++;
+}
+
+static gboolean
+wait_for_animated_shrink (GtkWindow  *window,
+                          ResizeTrace *trace)
+{
+  gint64 deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+
+  do
+    {
+      gdouble height_progress;
+      gdouble width_progress;
+      gint allocated_height;
+      gint allocated_width;
+      gint default_height;
+      gint default_width;
+
+      while (g_main_context_iteration (NULL, FALSE))
+        ;
+
+      allocated_width = gtk_widget_get_width (GTK_WIDGET (window));
+      allocated_height = gtk_widget_get_height (GTK_WIDGET (window));
+      if (allocated_width != trace->previous_allocated_width
+          || allocated_height != trace->previous_allocated_height)
+        {
+          if (allocated_width > trace->previous_allocated_width + 1
+              || allocated_height > trace->previous_allocated_height + 1)
+            trace->allocation_reversed = TRUE;
+
+          width_progress =
+            (gdouble) (trace->from_width - allocated_width)
+            / (trace->from_width - trace->to_width);
+          height_progress =
+            (gdouble) (trace->from_height - allocated_height)
+            / (trace->from_height - trace->to_height);
+          trace->max_allocation_progress_delta =
+            MAX (trace->max_allocation_progress_delta,
+                 ABS (width_progress - height_progress));
+          trace->previous_allocated_width = allocated_width;
+          trace->previous_allocated_height = allocated_height;
+          trace->allocation_samples++;
+        }
+
+      gtk_window_get_default_size (window, &default_width, &default_height);
+      if (default_width == trace->to_width
+          && default_height == trace->to_height
+          && ABS (allocated_width - trace->to_width) <= 1
+          && ABS (allocated_height - trace->to_height) <= 1)
+        return TRUE;
+
+      g_usleep (1000);
+    }
+  while (g_get_monotonic_time () < deadline);
+
+  return FALSE;
+}
+
+static void
+test_animated_shrink_uses_one_timeline (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  KasasaWindow *window;
+  ResizeTrace trace = {
+    .from_width = 600,
+    .from_height = 450,
+    .to_width = 75,
+    .to_height = 75,
+    .previous_width = 600,
+    .previous_height = 450,
+    .previous_allocated_width = 600,
+    .previous_allocated_height = 450,
+  };
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "miniaturize-window",
+                                         FALSE));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "auto-discard-window",
+                                         FALSE));
+
+  application_id = g_strdup_printf ("io.github.kelvinnovais.Kasasa.Shrink%u",
+                                    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  g_assert_true (g_application_register (G_APPLICATION (application),
+                                         NULL,
+                                         &error));
+  g_assert_no_error (error);
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", application,
+                         NULL);
+  gtk_window_present (GTK_WINDOW (window));
+  dispatch_pending_sources ();
+
+  kasasa_window_resize_window (window,
+                               trace.from_height,
+                               trace.from_width);
+  g_assert_true (wait_for_window_allocation (GTK_WINDOW (window),
+                                             trace.from_width,
+                                             trace.from_height));
+
+  g_object_set (gtk_settings_get_default (),
+                "gtk-enable-animations", TRUE,
+                NULL);
+  g_signal_connect (window,
+                    "notify::default-width",
+                    G_CALLBACK (trace_resize_progress),
+                    &trace);
+  g_signal_connect (window,
+                    "notify::default-height",
+                    G_CALLBACK (trace_resize_progress),
+                    &trace);
+
+  kasasa_window_resize_window (window, trace.to_height, trace.to_width);
+  g_assert_true (wait_for_animated_shrink (GTK_WINDOW (window), &trace));
+
+  g_signal_handlers_disconnect_by_data (window, &trace);
+  g_object_set (gtk_settings_get_default (),
+                "gtk-enable-animations", FALSE,
+                NULL);
+  g_assert_cmpuint (trace.samples, >, 2);
+  g_assert_cmpuint (trace.allocation_samples, >, 2);
+  g_assert_false (trace.reversed);
+  g_assert_false (trace.allocation_reversed);
+  g_assert_cmpfloat (trace.max_progress_delta, <=, 0.03);
+  g_assert_cmpfloat (trace.max_allocation_progress_delta, <=, 0.05);
+
+  gtk_window_destroy (GTK_WINDOW (window));
+  dispatch_pending_sources ();
 }
 
 static void
@@ -463,6 +640,8 @@ main (int argc, char **argv)
                    test_continuous_zoom_shrink);
   g_test_add_func ("/gtk/window/switch-resize-modes",
                    test_switch_resize_modes);
+  g_test_add_func ("/gtk/window/animated-shrink-one-timeline",
+                   test_animated_shrink_uses_one_timeline);
 
   return g_test_run ();
 }
