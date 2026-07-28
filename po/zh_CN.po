@@ -1,0 +1,349 @@
+# Simplified Chinese translation for Kasasa.
+# Copyright (C) 2026 Kasasa contributors
+# This file is distributed under the same license as the kasasa package.
+# victorymt, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kasasa\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-29 00:00+0800\n"
+"PO-Revision-Date: 2026-07-29 00:00+0800\n"
+"Last-Translator: victorymt\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Kasasa"
+msgstr "Kasasa"
+
+msgid "Snip and pin useful information"
+msgstr "截取并贴置有用的信息"
+
+msgid "screenshot;clipping;snip;image;pin;reference;screencast;"
+msgstr "截图;剪裁;片段;图像;贴图;参考;录屏;"
+
+msgid "Pin a screencast"
+msgstr "贴置实时录屏"
+
+msgid ""
+"Clip what's important to a small floating window, so you don't have to "
+"switch between windows or workspaces repeatedly. The window can become "
+"miniaturized or have its opacity reduced, in order to do not block what's "
+"behind it."
+msgstr ""
+"将重要内容截取到一个小型悬浮窗口中，免去反复切换窗口或工作区。窗口可以缩小"
+"或降低不透明度，以免遮挡其后方的内容。"
+
+msgid "Best used with:"
+msgstr "建议搭配以下功能使用："
+
+msgid "\"Always on Top\" and/or \"Always on Visible Workspace\""
+msgstr "“置于顶层”和/或“始终位于可见工作区”"
+
+msgid "A keyboard shortcut"
+msgstr "键盘快捷键"
+
+msgid ""
+"On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom "
+"Shortcuts. There you can set a shortcut to run <code>flatpak run "
+"io.github.kelvinnovais.Kasasa</code> "
+msgstr ""
+"在 GNOME 中，打开“设置 → 键盘 → 查看及自定义快捷键 → 自定义快捷键”，然后"
+"可以设置快捷键来运行 <code>flatpak run io.github.kelvinnovais.Kasasa</code>。"
+
+msgid ""
+"Note: On GNOME versions < 46, a dialog will appear to set up and take the "
+"screenshot, instead of directly using the GNOME's screenshoter; this may be "
+"inconvenient."
+msgstr ""
+"注意：在低于 46 的 GNOME 版本中，会显示一个用于配置和截取屏幕的对话框，"
+"而不会直接使用 GNOME 截图工具；这可能不太方便。"
+
+msgid "Main window"
+msgstr "主窗口"
+
+msgid "Kasasa can become a window miniature"
+msgstr "Kasasa 可以缩小为窗口缩略图"
+
+msgid "Or decrease its opacity"
+msgstr "也可以降低窗口不透明度"
+
+msgid "Language"
+msgstr "语言"
+
+msgid "Language used by Kasasa after the next restart"
+msgstr "Kasasa 下次重启后使用的语言"
+
+msgctxt "shortcut window"
+msgid "General"
+msgstr "常规"
+
+msgctxt "shortcut window"
+msgid "Show Shortcuts"
+msgstr "显示快捷键"
+
+msgctxt "shortcut window"
+msgid "Quit"
+msgstr "退出"
+
+msgid "Failed to list windows"
+msgstr "无法列出窗口"
+
+msgid "Failed to resolve window"
+msgstr "无法解析窗口"
+
+msgid "Targeted live screencast requires Hyprland Wayland"
+msgstr "指定窗口实时录屏需要 Hyprland Wayland"
+
+msgid "Invalid window address"
+msgstr "窗口地址无效"
+
+msgid "Failed to capture window"
+msgstr "无法截取窗口"
+
+msgid "--json requires --list-windows"
+msgstr "--json 需要与 --list-windows 一起使用"
+
+msgid ""
+"Snip and pin useful information\n"
+"\n"
+"If you liked the app ❤️, consider giving it a star ⭐:"
+msgstr ""
+"截取并贴置有用的信息\n"
+"\n"
+"如果您喜欢这个应用 ❤️，欢迎为它点亮一颗星 ⭐："
+
+msgid "translator-credits"
+msgstr "victorymt"
+
+msgid "Start by pinning a screencast instead of a screenshot"
+msgstr "启动时贴置实时录屏而不是截图"
+
+msgid "List capturable windows (Hyprland) and exit"
+msgstr "列出可截取的窗口（Hyprland）并退出"
+
+msgid "With --list-windows, print JSON"
+msgstr "与 --list-windows 一起使用时输出 JSON"
+
+msgid "Capture a window: class, title:…, address:…, or active"
+msgstr "截取窗口：类名、title:…、address:… 或 active"
+
+msgid "SPEC"
+msgstr "规格"
+
+msgid "Unblock miniaturization"
+msgstr "允许缩小窗口"
+
+msgid "Block miniaturization"
+msgstr "禁止缩小窗口"
+
+msgid "Trigger auto discard timer"
+msgstr "启动自动关闭计时器"
+
+msgid "Auto delete image when closing window"
+msgstr "关闭窗口时自动删除图像"
+
+msgid "Menu"
+msgstr "菜单"
+
+msgid "_Preferences"
+msgstr "首选项(_P)"
+
+msgid "_About Kasasa"
+msgstr "关于 Kasasa(_A)"
+
+#, c-format
+msgid "Error: %s"
+msgstr "错误：%s"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "GPU screencast unavailable. Switched to CPU."
+msgstr "GPU 录屏不可用，已切换到 CPU。"
+
+msgid "Screenshot scheduled"
+msgstr "已安排截图"
+
+#, c-format
+msgid "Screenshot in %u second"
+msgid_plural "Screenshot in %u seconds"
+msgstr[0] "将在 %u 秒后截图"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Couldn't load the screenshot"
+msgstr "无法加载截图"
+
+msgid "Current content is not a screenshot"
+msgstr "当前内容不是截图"
+
+msgid "Reason: "
+msgstr "原因："
+
+msgid "Screenshot failed"
+msgstr "截图失败"
+
+msgid "Screencast failed"
+msgstr "录屏失败"
+
+msgid "The screencast service did not respond"
+msgstr "录屏服务没有响应"
+
+msgid "Couldn't start the screencast"
+msgstr "无法启动录屏"
+
+msgid "The screencast did not provide a video stream"
+msgstr "录屏服务未提供视频流"
+
+msgid "The screencast provided invalid stream information"
+msgstr "录屏服务提供了无效的视频流信息"
+
+msgid "Couldn't connect to the screencast service"
+msgstr "无法连接到录屏服务"
+
+msgid "Couldn't display the screencast"
+msgstr "无法显示录屏"
+
+msgid "Couldn't create the screencast"
+msgstr "无法创建录屏"
+
+msgid "Waiting for screen selection…"
+msgstr "正在等待选择屏幕或窗口…"
+
+msgid "Finish the current screencast before starting another one."
+msgstr "请先结束当前录屏，再开始新的录屏。"
+
+msgid "Copied to the clipboard"
+msgstr "已复制到剪贴板"
+
+msgid "Add screenshot"
+msgstr "添加截图"
+
+msgid "More actions"
+msgstr "更多操作"
+
+msgid "Delayed screenshot"
+msgstr "延时截图"
+
+msgid "Screencast"
+msgstr "录屏"
+
+msgid "Remove this item"
+msgstr "移除此项"
+
+msgid "Stop screencast"
+msgstr "停止录屏"
+
+msgid "Retake screenshot"
+msgstr "重新截图"
+
+msgid "Copy screenshot"
+msgstr "复制截图"
+
+msgid "Screencast ended with error"
+msgstr "录屏因错误而结束"
+
+msgid "The window capture stopped unexpectedly"
+msgstr "窗口录制意外停止"
+
+msgid "The screencast pipeline has no message bus"
+msgstr "录屏管线没有消息总线"
+
+msgid "The screencast pipeline could not be started"
+msgstr "无法启动录屏管线"
+
+msgid "Invalid screencast connection"
+msgstr "录屏连接无效"
+
+msgid "Screencast is already active"
+msgstr "录屏已经处于活动状态"
+
+msgid "The screencast pipeline could not be linked"
+msgstr "无法连接录屏管线"
+
+msgid "Couldn't start Hyprland window capture"
+msgstr "无法启动 Hyprland 窗口录制"
+
+msgid "Required GStreamer plugins are unavailable"
+msgstr "所需的 GStreamer 插件不可用"
+
+msgid "No screencast"
+msgstr "没有录屏"
+
+msgid "General"
+msgstr "常规"
+
+msgid "Changes take effect after restarting Kasasa"
+msgstr "更改将在重启 Kasasa 后生效"
+
+msgid "System default"
+msgstr "跟随系统"
+
+msgid "Window hide mode"
+msgstr "窗口隐藏方式"
+
+msgid "Decrease opacity"
+msgstr "降低不透明度"
+
+msgid "Opacity level"
+msgstr "不透明度"
+
+msgid "Miniaturize"
+msgstr "缩小窗口"
+
+msgid "Auto hide the header bar"
+msgstr "自动隐藏标题栏"
+
+msgid "Controls timeout (in seconds)"
+msgstr "控件隐藏延时（秒）"
+
+msgid "Occupying screen percentage"
+msgstr "屏幕占用比例"
+
+msgid "Max percentage of the screen that Kasasa can use"
+msgstr "Kasasa 最多可以占用的屏幕百分比"
+
+msgid "Image switching"
+msgstr "贴图切换"
+
+msgid "Window size"
+msgstr "窗口大小"
+
+msgid "Fit each image"
+msgstr "适应每张图像"
+
+msgid "Keep width"
+msgstr "保持宽度"
+
+msgid "Keep height"
+msgstr "保持高度"
+
+msgid "Auto close window"
+msgstr "自动关闭窗口"
+
+msgid "Auto close the window after a certain time"
+msgstr "经过指定时间后自动关闭窗口"
+
+msgid "Time (in minutes)"
+msgstr "时间（分钟）"
+
+msgid "Rendering path"
+msgstr "渲染路径"
+
+msgid "Screenshot delay (in seconds)"
+msgstr "截图延时（秒）"
+
+msgid "Time for delayed screenshots"
+msgstr "延时截图的等待时间"
+
+msgid "Auto delete image"
+msgstr "自动删除图像"
+
+msgid "Auto delete the image when closing the window or retaking a screenshot"
+msgstr "关闭窗口或重新截图时自动删除图像"

@@ -455,7 +455,7 @@ kasasa_application_init (KasasaApplication *self)
       .flags = G_OPTION_FLAG_NONE,
       .arg = G_OPTION_ARG_NONE,
       .arg_data = NULL,
-      .description = N_("Start by pinning a screencast instead of a screenshot"),
+      .description = _("Start by pinning a screencast instead of a screenshot"),
       .arg_description = NULL,
     },
     {
@@ -464,7 +464,7 @@ kasasa_application_init (KasasaApplication *self)
       .flags = G_OPTION_FLAG_NONE,
       .arg = G_OPTION_ARG_NONE,
       .arg_data = NULL,
-      .description = N_("List capturable windows (Hyprland) and exit"),
+      .description = _("List capturable windows (Hyprland) and exit"),
       .arg_description = NULL,
     },
     {
@@ -473,7 +473,7 @@ kasasa_application_init (KasasaApplication *self)
       .flags = G_OPTION_FLAG_NONE,
       .arg = G_OPTION_ARG_NONE,
       .arg_data = NULL,
-      .description = N_("With --list-windows, print JSON"),
+      .description = _("With --list-windows, print JSON"),
       .arg_description = NULL,
     },
     {
@@ -482,8 +482,8 @@ kasasa_application_init (KasasaApplication *self)
       .flags = G_OPTION_FLAG_NONE,
       .arg = G_OPTION_ARG_STRING,
       .arg_data = NULL,
-      .description = N_("Capture a window: class, title:…, address:…, or active"),
-      .arg_description = N_("SPEC"),
+      .description = _("Capture a window: class, title:…, address:…, or active"),
+      .arg_description = _("SPEC"),
     },
     { NULL }
   };

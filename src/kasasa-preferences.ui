@@ -6,6 +6,28 @@
     <property name="search-enabled">false</property>
     <child>
       <object class="AdwPreferencesPage">
+        <!-- LANGUAGE -->
+        <child>
+          <object class="AdwPreferencesGroup">
+            <property name="title" translatable="yes">General</property>
+            <child>
+              <object class="AdwComboRow" id="language_combo">
+                <property name="title" translatable="yes">Language</property>
+                <property name="subtitle" translatable="yes">Changes take effect after restarting Kasasa</property>
+                <property name="model">
+                  <object class="GtkStringList">
+                    <items>
+                      <item translatable="yes">System default</item>
+                      <item>English</item>
+                      <item>简体中文</item>
+                    </items>
+                  </object>
+                </property>
+              </object>
+            </child>
+          </object>
+        </child>
+
         <!-- HINDING WINDOW MODE -->
         <child>
           <object class="AdwPreferencesGroup">

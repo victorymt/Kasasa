@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist gettext-domain="kasasa">
 	<schema id="io.github.kelvinnovais.Kasasa" path="/io/github/kelvinnovais/Kasasa/">
+	  <!-- LANGUAGE -->
+	  <key name="language" type="s">
+      <choices>
+        <choice value="system"/>
+        <choice value="en"/>
+        <choice value="zh_CN"/>
+      </choices>
+      <default>'system'</default>
+      <summary>Language</summary>
+      <description>Language used by Kasasa after the next restart</description>
+    </key>
+
 	  <!-- AUTO HIDE HEADER BAR -->
 	  <key name="auto-hide-menu" type="b">
       <default>true</default>

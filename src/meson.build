@@ -23,6 +23,7 @@ wayland_protocols_gen += [toplevel_export_client_h, toplevel_export_protocol_c]
 kasasa_sources = [
   'main.c',
   'kasasa-application.c',
+  'kasasa-language.c',
   'kasasa-window.c',
   'kasasa-preferences.c',
   'kasasa-content.c',

@@ -62,6 +62,7 @@
         }
     ],
     "build-options" : {
+        "separate-locales" : false,
         "env" : {        }
     }
 }

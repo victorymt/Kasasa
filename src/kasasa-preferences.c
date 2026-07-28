@@ -20,12 +20,15 @@
  */
 
 #include "kasasa-preferences.h"
+#include "kasasa-language.h"
 
 struct _KasasaPreferences
 {
   AdwPreferencesDialog   parent_instance;
 
   /* Template widgets */
+  GtkWidget             *language_combo;
+
   GtkWidget             *opacity_expander_row;
   GtkWidget             *opacity_adjustment;
 
@@ -51,6 +54,23 @@ struct _KasasaPreferences
 };
 
 G_DEFINE_FINAL_TYPE (KasasaPreferences, kasasa_preferences, ADW_TYPE_PREFERENCES_DIALOG)
+
+static void
+on_language_combo_changed (GObject    *object,
+                           GParamSpec *pspec,
+                           gpointer    user_data)
+{
+  KasasaPreferences *self = KASASA_PREFERENCES (user_data);
+  guint selected = adw_combo_row_get_selected (
+    ADW_COMBO_ROW (self->language_combo));
+
+  if (selected >= KASASA_LANGUAGE_N_OPTIONS)
+    selected = KASASA_LANGUAGE_SYSTEM;
+
+  g_settings_set_string (self->settings,
+                         "language",
+                         kasasa_language_to_id ((KasasaLanguage) selected));
+}
 
 static void
 on_opacity_expander_row_changed (GObject    *object,
@@ -104,6 +124,8 @@ kasasa_preferences_class_init (KasasaPreferencesClass *klass)
 
   gtk_widget_class_set_template_from_resource (widget_class, "/io/github/kelvinnovais/Kasasa/kasasa-preferences.ui");
 
+  gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, language_combo);
+
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, opacity_expander_row);
   gtk_widget_class_bind_template_child (widget_class, KasasaPreferences, opacity_adjustment);
 
@@ -129,9 +151,16 @@ kasasa_preferences_class_init (KasasaPreferencesClass *klass)
 static void
 kasasa_preferences_init (KasasaPreferences *self)
 {
+  g_autofree gchar *language_id = NULL;
+
   gtk_widget_init_template (GTK_WIDGET (self));
 
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+
+  language_id = g_settings_get_string (self->settings, "language");
+  adw_combo_row_set_selected (
+    ADW_COMBO_ROW (self->language_combo),
+    kasasa_language_from_id (language_id));
 
   // BIND SETTINGS
   // Opacity
@@ -194,6 +223,10 @@ kasasa_preferences_init (KasasaPreferences *self)
     }
 
   // Signals
+  g_signal_connect (self->language_combo, "notify::selected",
+                    G_CALLBACK (on_language_combo_changed),
+                    self);
+
   g_signal_connect (self->opacity_expander_row, "notify::enable-expansion",
                     G_CALLBACK (on_opacity_expander_row_changed),
                     self);

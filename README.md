@@ -72,6 +72,24 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > kasasa --screencast --window=active
 > ```
 
+## Screencast
+
+Start a live pin from the toolbar, or launch Kasasa with
+`kasasa --screencast` (`-c`). The desktop portal lets you choose either an
+entire screen or an individual window.
+
+- Portal previews are synchronized and capped at 30 FPS to keep CPU usage
+  predictable. Kasasa prefers the GPU-accelerated GL pipeline when it is
+  available and falls back to CPU rendering when necessary.
+- Capturing a screen that also contains the Kasasa window creates a recursive
+  preview and requires extra rendering work. Select a window, or move Kasasa
+  off the captured screen, when recursion is not wanted.
+- Move the pointer over the live pin to reveal its bottom-right controls, then
+  click the stop icon (tooltip: **Stop screencast**) to finish it and release
+  the capture session.
+- Only one screencast can be active at a time. Finish the current stream before
+  starting another one.
+
 > [!IMPORTANT]
 > On GNOME versions < 46, a dialog will appear to set up and take the screenshot,
 > instead of directly using the GNOME's screenshoter; this may be inconvenient. 
@@ -79,6 +97,12 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 ## Installation
 
 [<img width="240" alt="Download on Flathub" src="https://flathub.org/api/badge?svg&locale=en"/>](https://flathub.org/apps/io.github.kelvinnovais.Kasasa)
+
+## Language
+
+Open **Menu → Preferences → General → Language** to choose **System
+default**, **English**, or **简体中文**. The selected language is saved
+immediately and takes effect after Kasasa is fully closed and started again.
 
 
 ## Screenshots

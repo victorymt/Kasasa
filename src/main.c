@@ -25,6 +25,7 @@
 #include <gst/gst.h>
 
 #include "kasasa-application.h"
+#include "kasasa-language.h"
 
 int
 main (int   argc,
@@ -32,6 +33,11 @@ main (int   argc,
 {
   g_autoptr(KasasaApplication) app = NULL;
   int ret;
+
+  /* Apply the saved language before gettext or any GTK template performs its
+   * first translation lookup.  Existing widgets cannot be safely retranslated
+   * in place, so preference changes take effect on the next launch. */
+  kasasa_language_apply_from_settings ();
 
   bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");

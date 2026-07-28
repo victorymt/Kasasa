@@ -1,4 +1,5 @@
 glib_dep = dependency('glib-2.0')
+gio_dep = dependency('gio-2.0')
 gtk_dep = dependency('gtk4')
 adwaita_dep = dependency('libadwaita-1', version: '>= 1.7.4')
 portal_dep = dependency('libportal')
@@ -10,6 +11,28 @@ wayland_client_dep = dependency('wayland-client')
 wayland_scanner = find_program('wayland-scanner')
 math_dep = cc.find_library('m', required: true)
 rt_dep = cc.find_library('rt', required: false)
+
+language_test = executable(
+  'test-language',
+  [
+    'test-language.c',
+    '../src/kasasa-language.c',
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: gio_dep,
+)
+
+test(
+  'Language selection',
+  language_test,
+  env: [
+    'G_DEBUG=fatal-warnings',
+    'GSETTINGS_BACKEND=memory',
+    'GSETTINGS_SCHEMA_DIR=' + (meson.project_build_root() / 'data'),
+  ],
+  suite: 'unit',
+  timeout: 30,
+)
 
 toplevel_export_xml = files('../protocols/hyprland-toplevel-export-v1.xml')
 toplevel_export_client_h = custom_target(
@@ -180,6 +203,7 @@ gtk_preferences_test = executable(
   'test-gtk-preferences',
   [
     'test-gtk-preferences.c',
+    '../src/kasasa-language.c',
     '../src/kasasa-preferences.c',
     test_app_resources,
   ],
@@ -251,6 +275,7 @@ gtk_window_test = executable(
   [
     'test-gtk-window.c',
     '../src/kasasa-application.c',
+    '../src/kasasa-language.c',
     '../src/kasasa-window.c',
     '../src/kasasa-preferences.c',
     '../src/kasasa-content-container.c',

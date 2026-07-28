@@ -50,6 +50,7 @@ static void
 reset_settings (GSettings *settings)
 {
   const char *keys[] = {
+    "language",
     "change-opacity",
     "opacity",
     "miniaturize-window",
@@ -89,6 +90,39 @@ get_preferences_child (KasasaPreferences *preferences,
   g_assert_nonnull (widget);
 
   return widget;
+}
+
+static void
+test_language_selection_persists (void)
+{
+  static const char *language_ids[] = { "system", "en", "zh_CN" };
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (KasasaPreferences) preferences = NULL;
+  AdwComboRow *language_combo;
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  reset_settings (settings);
+  preferences = create_preferences ();
+  language_combo = ADW_COMBO_ROW (
+    get_preferences_child (preferences, "language_combo"));
+
+  g_assert_cmpuint (adw_combo_row_get_selected (language_combo), ==, 0);
+
+  for (guint i = 0; i < G_N_ELEMENTS (language_ids); i++)
+    {
+      g_autofree gchar *stored_language = NULL;
+
+      adw_combo_row_set_selected (language_combo, i);
+      stored_language = g_settings_get_string (settings, "language");
+      g_assert_cmpstr (stored_language, ==, language_ids[i]);
+    }
+
+  adw_combo_row_set_selected (language_combo, 2);
+  g_clear_object (&preferences);
+  preferences = create_preferences ();
+  language_combo = ADW_COMBO_ROW (
+    get_preferences_child (preferences, "language_combo"));
+  g_assert_cmpuint (adw_combo_row_get_selected (language_combo), ==, 2);
 }
 
 static void
@@ -282,6 +316,8 @@ main (int argc, char **argv)
   adw_init ();
   g_test_add_func ("/gtk/preferences/hiding-modes-mutually-exclusive",
                    test_hiding_modes_are_mutually_exclusive);
+  g_test_add_func ("/gtk/preferences/language-selection-persists",
+                   test_language_selection_persists);
   g_test_add_func ("/gtk/preferences/all-bindings-persist",
                    test_all_settings_bindings_persist);
 
