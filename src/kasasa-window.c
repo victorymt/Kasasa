@@ -725,6 +725,7 @@ static gboolean
 resize_window_scaling (KasasaWindow *self,
                        gdouble       new_height,
                        gdouble       new_width,
+                       gboolean      animate,
                        gboolean      from_zoom)
 {
   gdouble nat_width = -1.0;
@@ -759,7 +760,7 @@ resize_window_scaling (KasasaWindow *self,
   self->pending_resize = FALSE;
 
   kasasa_window_resize_window_internal (self, nat_height, nat_width,
-                                        TRUE, from_zoom);
+                                        animate, from_zoom);
   return TRUE;
 }
 
@@ -768,15 +769,20 @@ kasasa_window_resize_window_scaling (KasasaWindow *self,
                                      gdouble       new_height,
                                      gdouble       new_width)
 {
-  return resize_window_scaling (self, new_height, new_width, FALSE);
+  return resize_window_scaling (self, new_height, new_width, TRUE, FALSE);
 }
 
 gboolean
 kasasa_window_resize_window_scaling_for_zoom (KasasaWindow *self,
                                               gdouble       new_height,
-                                              gdouble       new_width)
+                                              gdouble       new_width,
+                                              gboolean      continuous)
 {
-  return resize_window_scaling (self, new_height, new_width, TRUE);
+  return resize_window_scaling (self,
+                                new_height,
+                                new_width,
+                                continuous,
+                                continuous);
 }
 
 gboolean
@@ -1412,7 +1418,7 @@ zoom_tick_cb (GtkWidget     *widget,
     {
       self->zoom_scheduled = FALSE;
       if (!kasasa_content_container_request_zoom_resize (
-            self->content_container))
+            self->content_container, TRUE))
         {
           self->zoom_tick_id = 0;
           self->zoom_current_width = 0.0;
@@ -1534,7 +1540,11 @@ kasasa_window_apply_zoom_delta (KasasaWindow   *self,
            self->zoom_factor,
            input == KASASA_ZOOM_INPUT_SURFACE ? "surface" : "wheel");
 
-  kasasa_window_schedule_zoom_apply (self);
+  if (input == KASASA_ZOOM_INPUT_SURFACE)
+    kasasa_window_schedule_zoom_apply (self);
+  else
+    kasasa_content_container_request_zoom_resize (self->content_container,
+                                                  FALSE);
   kasasa_window_change_opacity (self, OPACITY_INCREASE);
   return TRUE;
 }

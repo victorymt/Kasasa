@@ -72,7 +72,8 @@ void kasasa_content_container_load_first_hyprland_screencast (KasasaContentConta
                                                               gint                    height);
 gboolean kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_window_resize (KasasaContentContainer *cc);
-gboolean kasasa_content_container_request_zoom_resize (KasasaContentContainer *cc);
+gboolean kasasa_content_container_request_zoom_resize (KasasaContentContainer *cc,
+                                                       gboolean                continuous);
 gboolean kasasa_content_container_switch_page (KasasaContentContainer *cc,
                                                 gint                    offset);
 void kasasa_content_container_reveal_controls (KasasaContentContainer *cc,

@@ -84,6 +84,30 @@ dispatch_pending_sources (void)
     ;
 }
 
+static void
+dispatch_sources_for (guint duration_ms)
+{
+  gint64 deadline = g_get_monotonic_time ()
+                   + (gint64) duration_ms * G_TIME_SPAN_MILLISECOND;
+
+  do
+    {
+      dispatch_pending_sources ();
+      g_usleep (1000);
+    }
+  while (g_get_monotonic_time () < deadline);
+}
+
+static void
+count_property_notification (GObject    *object,
+                             GParamSpec *pspec,
+                             gpointer    user_data)
+{
+  guint *count = user_data;
+
+  (*count)++;
+}
+
 static gboolean
 after_close_request (GtkWindow *window,
                      gpointer   user_data)
@@ -523,9 +547,15 @@ test_continuous_zoom_shrink (void)
   gdouble previous_zoom;
   gint initial_width;
   gint initial_height;
+  gint immediate_height;
+  gint immediate_width;
   gint final_width;
   gint final_height;
+  gint settled_height;
+  gint settled_width;
   guint changes = 0;
+  guint wheel_height_updates = 0;
+  guint wheel_width_updates = 0;
 
   settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
   g_assert_true (g_settings_set_boolean (settings, "auto-hide-menu", FALSE));
@@ -570,6 +600,34 @@ test_continuous_zoom_shrink (void)
   g_assert_cmpint (initial_width, >, WINDOW_MIN_WIDTH);
   g_assert_cmpint (initial_height, >, WINDOW_MIN_HEIGHT);
 
+  g_signal_connect (window,
+                    "notify::default-width",
+                    G_CALLBACK (count_property_notification),
+                    &wheel_width_updates);
+  g_signal_connect (window,
+                    "notify::default-height",
+                    G_CALLBACK (count_property_notification),
+                    &wheel_height_updates);
+
+  g_assert_true (kasasa_window_apply_zoom_delta (
+    window, 1.0, KASASA_ZOOM_INPUT_WHEEL));
+  gtk_window_get_default_size (GTK_WINDOW (window),
+                               &immediate_width,
+                               &immediate_height);
+  dispatch_sources_for (500);
+  gtk_window_get_default_size (GTK_WINDOW (window),
+                               &settled_width,
+                               &settled_height);
+  g_signal_handlers_disconnect_by_data (window, &wheel_width_updates);
+  g_signal_handlers_disconnect_by_data (window, &wheel_height_updates);
+
+  g_assert_cmpint (immediate_width, <, initial_width);
+  g_assert_cmpint (immediate_height, <, initial_height);
+  g_assert_cmpint (settled_width, ==, immediate_width);
+  g_assert_cmpint (settled_height, ==, immediate_height);
+  g_assert_cmpuint (wheel_width_updates, <=, 1);
+  g_assert_cmpuint (wheel_height_updates, <=, 1);
+
   previous_zoom = kasasa_window_get_zoom_factor (window);
   for (guint i = 0; i < 256; i++)
     {
@@ -577,8 +635,9 @@ test_continuous_zoom_shrink (void)
       gboolean changed;
 
       changed = kasasa_window_apply_zoom_delta (window,
-                                                1.0,
-                                                KASASA_ZOOM_INPUT_WHEEL);
+                                                KASASA_ZOOM_SURFACE_PIXELS_PER_STEP
+                                                / 4.0,
+                                                KASASA_ZOOM_INPUT_SURFACE);
       zoom = kasasa_window_get_zoom_factor (window);
       g_assert_true (isfinite (zoom));
       g_assert_cmpfloat (zoom, <=, previous_zoom);
@@ -593,7 +652,9 @@ test_continuous_zoom_shrink (void)
   g_assert_cmpfloat (previous_zoom, >=, WINDOW_ZOOM_MIN);
   for (guint i = 0; i < 32; i++)
     g_assert_false (kasasa_window_apply_zoom_delta (
-      window, 1.0, KASASA_ZOOM_INPUT_WHEEL));
+      window,
+      KASASA_ZOOM_SURFACE_PIXELS_PER_STEP / 4.0,
+      KASASA_ZOOM_INPUT_SURFACE));
 
   g_assert_true (wait_for_window_shrink (GTK_WINDOW (window),
                                          initial_width,

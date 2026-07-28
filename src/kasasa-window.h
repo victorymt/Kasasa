@@ -79,7 +79,8 @@ gboolean kasasa_window_resize_window_scaling (KasasaWindow *window,
                                               gdouble       new_width);
 gboolean kasasa_window_resize_window_scaling_for_zoom (KasasaWindow *window,
                                                        gdouble       new_height,
-                                                       gdouble       new_width);
+                                                       gdouble       new_width,
+                                                       gboolean      continuous);
 gboolean kasasa_window_resize_for_content_switch (KasasaWindow           *window,
                                                   gdouble                 new_height,
                                                   gdouble                 new_width,

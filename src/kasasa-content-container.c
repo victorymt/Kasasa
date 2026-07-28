@@ -214,7 +214,8 @@ kasasa_content_container_reveal_controls (KasasaContentContainer *self,
 
 static gboolean
 request_window_resize (KasasaContentContainer *self,
-                       gboolean                for_zoom)
+                       gboolean                for_zoom,
+                       gboolean                continuous)
 {
   KasasaWindow *window = NULL;
   GtkWidget *content = NULL;
@@ -233,7 +234,10 @@ request_window_resize (KasasaContentContainer *self,
 
   if (for_zoom)
     return kasasa_window_resize_window_scaling_for_zoom (
-      window, (gdouble) new_height, (gdouble) new_width);
+      window,
+      (gdouble) new_height,
+      (gdouble) new_width,
+      continuous);
 
   return kasasa_window_resize_window_scaling (
     window, (gdouble) new_height, (gdouble) new_width);
@@ -242,13 +246,14 @@ request_window_resize (KasasaContentContainer *self,
 gboolean
 kasasa_content_container_request_window_resize (KasasaContentContainer *self)
 {
-  return request_window_resize (self, FALSE);
+  return request_window_resize (self, FALSE, FALSE);
 }
 
 gboolean
-kasasa_content_container_request_zoom_resize (KasasaContentContainer *self)
+kasasa_content_container_request_zoom_resize (KasasaContentContainer *self,
+                                              gboolean                continuous)
 {
-  return request_window_resize (self, TRUE);
+  return request_window_resize (self, TRUE, continuous);
 }
 
 void

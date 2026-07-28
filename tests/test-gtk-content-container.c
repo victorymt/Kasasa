@@ -179,7 +179,8 @@ kasasa_window_resize_window_scaling (KasasaWindow *window,
 gboolean
 kasasa_window_resize_window_scaling_for_zoom (KasasaWindow *window,
                                               gdouble       new_height,
-                                              gdouble       new_width)
+                                              gdouble       new_width,
+                                              gboolean      continuous)
 {
   return TRUE;
 }
