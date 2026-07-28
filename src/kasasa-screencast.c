@@ -46,6 +46,7 @@ enum
 {
   SIGNAL_NEW_DIMENSION,
   SIGNAL_EOS,
+  SIGNAL_CPU_FALLBACK,
 
   N_SIGNALS
 };
@@ -70,6 +71,7 @@ struct _KasasaScreencast
   gboolean                 finished;
   gboolean                 using_gpu_pipeline;
   gboolean                 gpu_fallback_attempted;
+  gboolean                 cpu_fallback_notified;
   guint                    portal_node_id;
   guint                    fallback_source;
   gint                     dimension[DIMENSION_N_ELEMENTS];
@@ -86,6 +88,16 @@ G_DEFINE_TYPE_WITH_CODE (KasasaScreencast, kasasa_screencast, ADW_TYPE_BIN,
 
 static void clear_gstreamer_pipeline (KasasaScreencast *self);
 static gboolean retry_portal_cpu_idle (gpointer user_data);
+
+static void
+emit_cpu_fallback (KasasaScreencast *self)
+{
+  if (self->cpu_fallback_notified)
+    return;
+
+  self->cpu_fallback_notified = TRUE;
+  g_signal_emit (self, obj_signals[SIGNAL_CPU_FALLBACK], 0);
+}
 
 static void
 clear_frame_pool (KasasaScreencast *self)
@@ -579,6 +591,7 @@ retry_portal_cpu_idle (gpointer user_data)
       return G_SOURCE_REMOVE;
     }
 
+  emit_cpu_fallback (self);
   return G_SOURCE_REMOVE;
 }
 
@@ -596,6 +609,7 @@ kasasa_screencast_show (KasasaScreencast *self,
   g_autoptr (GSettings) settings = NULL;
   g_autoptr (GError) pipeline_error = NULL;
   g_autofree gchar *pipeline_preference = NULL;
+  gboolean gpu_requested;
   gint fallback_fd;
 
   g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
@@ -615,6 +629,7 @@ kasasa_screencast_show (KasasaScreencast *self,
   self->session = session;
   self->portal_node_id = node_id;
   self->gpu_fallback_attempted = FALSE;
+  self->cpu_fallback_notified = FALSE;
 
   if (expected_width > 0 && expected_height > 0)
     new_dimension (self, expected_width, expected_height);
@@ -622,6 +637,7 @@ kasasa_screencast_show (KasasaScreencast *self,
   settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
   pipeline_preference = g_settings_get_string (settings,
                                                 "screencast-pipeline");
+  gpu_requested = g_strcmp0 (pipeline_preference, "gpu") == 0;
   mode = kasasa_screencast_pipeline_select_mode (pipeline_preference);
   if (!activate_portal_pipeline (self, fd, node_id, mode, &pipeline_error)
       && mode == KASASA_SCREENCAST_PIPELINE_GPU)
@@ -652,6 +668,9 @@ kasasa_screencast_show (KasasaScreencast *self,
       self->finished = TRUE;
       return FALSE;
     }
+
+  if (gpu_requested && !self->using_gpu_pipeline)
+    emit_cpu_fallback (self);
 
   gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
 
@@ -1002,6 +1021,16 @@ kasasa_screencast_class_init (KasasaScreencastClass *klass)
                   NULL,
                   G_TYPE_NONE,            // no return value
                   0);                     // no argument
+
+  obj_signals[SIGNAL_CPU_FALLBACK] =
+    g_signal_new ("cpu-fallback",
+                  KASASA_TYPE_SCREENCAST,
+                  G_SIGNAL_RUN_LAST,
+                  0,
+                  NULL, NULL,
+                  NULL,
+                  G_TYPE_NONE,
+                  0);
 
   object_class->dispose = kasasa_screencast_dispose;
 

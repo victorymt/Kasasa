@@ -197,6 +197,29 @@ test_screencast_pipeline_preference (void)
 }
 
 static void
+count_cpu_fallback (KasasaScreencast *screencast,
+                    guint             *fallback_count)
+{
+  (*fallback_count)++;
+}
+
+static void
+test_screencast_cpu_fallback_signal (void)
+{
+  g_autoptr (KasasaScreencast) screencast = kasasa_screencast_new ();
+  guint fallback_count = 0;
+
+  g_object_ref_sink (screencast);
+  g_signal_connect (screencast,
+                    "cpu-fallback",
+                    G_CALLBACK (count_cpu_fallback),
+                    &fallback_count);
+  g_signal_emit_by_name (screencast, "cpu-fallback");
+
+  g_assert_cmpuint (fallback_count, ==, 1);
+}
+
+static void
 test_cpu_screencast_pipeline (void)
 {
   KasasaScreencastPipeline pipeline = { 0 };
@@ -562,6 +585,8 @@ main (int argc, char **argv)
                    test_screencast_rejects_invalid_connection);
   g_test_add_func ("/gtk/screencast/pipeline-preference",
                    test_screencast_pipeline_preference);
+  g_test_add_func ("/gtk/screencast/cpu-fallback-signal",
+                   test_screencast_cpu_fallback_signal);
   g_test_add_func ("/gtk/screencast/cpu-pipeline",
                    test_cpu_screencast_pipeline);
   g_test_add_func ("/gtk/screencast/early-failure-closes-fd",

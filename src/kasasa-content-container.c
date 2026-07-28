@@ -104,6 +104,16 @@ show_operation_error (KasasaContentContainer *self,
 }
 
 static void
+on_screencast_cpu_fallback (KasasaScreencast     *screencast,
+                            KasasaContentContainer *self)
+{
+  AdwToast *toast;
+
+  toast = adw_toast_new (_("GPU screencast unavailable. Switched to CPU."));
+  adw_toast_overlay_add_toast (self->toast_overlay, toast);
+}
+
+static void
 withdraw_delayed_screenshot_notification (void)
 {
   GApplication *application = g_application_get_default ();
@@ -1062,6 +1072,8 @@ on_screencast_session_started (GObject      *source_object,
                     G_CALLBACK (on_screencast_new_dimension), self);
   g_signal_connect (screencast, "eos",
                     G_CALLBACK (on_screencast_eos), self);
+  g_signal_connect (screencast, "cpu-fallback",
+                    G_CALLBACK (on_screencast_cpu_fallback), self);
 
   if (!kasasa_screencast_show (screencast,
                                session,
