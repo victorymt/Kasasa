@@ -228,12 +228,17 @@ test_cpu_screencast_pipeline (void)
   g_autoptr (GstElement) pipewire = NULL;
   g_autoptr (GstElement) display_queue = NULL;
   g_autoptr (GstElement) display_convert = NULL;
+  g_autoptr (GstElement) sink = NULL;
   g_autoptr (GstElement) videocrop = NULL;
   g_autoptr (GstElement) analysis_queue = NULL;
   g_autoptr (GstElement) analysis_sink = NULL;
   g_autoptr (GstElement) gldownload = NULL;
   g_autoptr (GstElement) glupload = NULL;
   gboolean use_bufferpool = TRUE;
+  gboolean enable_last_sample = TRUE;
+  gboolean sync = FALSE;
+  guint64 throttle_time = 0;
+  gint min_buffers = 0;
   gint leaky = 0;
   guint max_size_buffers = 0;
 
@@ -253,6 +258,7 @@ test_cpu_screencast_pipeline (void)
                                        "display_queue");
   display_convert = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
                                          "display_convert");
+  sink = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "sink");
   videocrop = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "videocrop");
   analysis_queue = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
                                         "analysis_queue");
@@ -263,20 +269,33 @@ test_cpu_screencast_pipeline (void)
   g_assert_nonnull (pipewire);
   g_assert_nonnull (display_queue);
   g_assert_nonnull (display_convert);
+  g_assert_nonnull (sink);
   g_assert_null (videocrop);
   g_assert_null (analysis_queue);
   g_assert_null (analysis_sink);
   g_assert_null (gldownload);
   g_assert_null (glupload);
 
-  g_object_get (pipewire, "use-bufferpool", &use_bufferpool, NULL);
+  g_object_get (pipewire,
+                "use-bufferpool", &use_bufferpool,
+                "min-buffers", &min_buffers,
+                NULL);
+  g_object_get (sink,
+                "sync", &sync,
+                "throttle-time", &throttle_time,
+                "enable-last-sample", &enable_last_sample,
+                NULL);
   g_object_get (display_queue,
                 "leaky", &leaky,
                 "max-size-buffers", &max_size_buffers,
                 NULL);
   g_assert_false (use_bufferpool);
+  g_assert_cmpint (min_buffers, ==, 1);
+  g_assert_true (sync);
+  g_assert_cmpuint (throttle_time, ==, GST_SECOND / 30);
+  g_assert_false (enable_last_sample);
   g_assert_cmpint (leaky, ==, 2);
-  g_assert_cmpuint (max_size_buffers, ==, 2);
+  g_assert_cmpuint (max_size_buffers, ==, 1);
 
   kasasa_screencast_pipeline_clear (&pipeline);
 }
@@ -325,6 +344,7 @@ test_gpu_screencast_pipeline (void)
   g_autoptr (GError) error = NULL;
   g_autoptr (GstElement) pipewire = NULL;
   g_autoptr (GstElement) glupload = NULL;
+  g_autoptr (GstElement) glcolorconvert = NULL;
   g_autoptr (GstElement) gl_filter = NULL;
   g_autoptr (GstElement) display_queue = NULL;
   g_autoptr (GstElement) sink = NULL;
@@ -343,6 +363,10 @@ test_gpu_screencast_pipeline (void)
   g_autoptr (GstCaps) caps = NULL;
   const GstCapsFeatures *features;
   gboolean use_bufferpool = FALSE;
+  gboolean enable_last_sample = TRUE;
+  gboolean sync = FALSE;
+  guint64 throttle_time = 0;
+  gint min_buffers = 0;
   gint leaky = 0;
   guint max_size_buffers = 0;
 
@@ -365,6 +389,8 @@ test_gpu_screencast_pipeline (void)
   pipewire = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
                                   "pipewire_element");
   glupload = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "glupload");
+  glcolorconvert = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                        "glcolorconvert");
   gl_filter = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "gl_filter");
   display_queue = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
                                        "display_queue");
@@ -379,6 +405,7 @@ test_gpu_screencast_pipeline (void)
   videocrop = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "videocrop");
   g_assert_nonnull (pipewire);
   g_assert_nonnull (glupload);
+  g_assert_nonnull (glcolorconvert);
   g_assert_nonnull (gl_filter);
   g_assert_nonnull (display_queue);
   g_assert_nonnull (sink);
@@ -389,15 +416,27 @@ test_gpu_screencast_pipeline (void)
   g_assert_null (gldownload);
   g_assert_null (videocrop);
 
-  g_object_get (pipewire, "use-bufferpool", &use_bufferpool, NULL);
+  g_object_get (pipewire,
+                "use-bufferpool", &use_bufferpool,
+                "min-buffers", &min_buffers,
+                NULL);
   g_object_get (gl_filter, "caps", &caps, NULL);
+  g_object_get (sink,
+                "sync", &sync,
+                "throttle-time", &throttle_time,
+                "enable-last-sample", &enable_last_sample,
+                NULL);
   g_object_get (display_queue,
                 "leaky", &leaky,
                 "max-size-buffers", &max_size_buffers,
                 NULL);
   g_assert_true (use_bufferpool);
+  g_assert_cmpint (min_buffers, ==, 8);
+  g_assert_true (sync);
+  g_assert_cmpuint (throttle_time, ==, GST_SECOND / 30);
+  g_assert_false (enable_last_sample);
   g_assert_cmpint (leaky, ==, 2);
-  g_assert_cmpuint (max_size_buffers, ==, 2);
+  g_assert_cmpuint (max_size_buffers, ==, 1);
   g_assert_nonnull (caps);
   features = gst_caps_get_features (caps, 0);
   g_assert_true (gst_caps_features_contains (features, "memory:GLMemory"));

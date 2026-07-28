@@ -45,6 +45,7 @@ struct _KasasaContentContainer
   GtkButton               *add_delayed_screenshot_button;
   GtkButton               *add_screencast_button;
   GtkButton               *remove_content_button;
+  GtkButton               *stop_screencast_button;
   GtkButton               *copy_screenshot_button;
   GtkMenuButton           *more_actions_button;
   GtkRevealer             *revealer_end_buttons;
@@ -383,6 +384,7 @@ kasasa_content_container_update_toolbar_sensibility (KasasaContentContainer *sel
 {
   GtkWidget *current_content = NULL;
   gboolean is_screenshot;
+  gboolean is_active_screencast;
 
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
 
@@ -420,10 +422,17 @@ kasasa_content_container_update_toolbar_sensibility (KasasaContentContainer *sel
 
   current_content = get_current_content (self);
   is_screenshot = KASASA_IS_SCREENSHOT (current_content);
+  is_active_screencast =
+    KASASA_IS_SCREENCAST (current_content)
+    && kasasa_screencast_is_active (KASASA_SCREENCAST (current_content));
   gtk_widget_set_sensitive (GTK_WIDGET (self->retake_screenshot_button),
                             is_screenshot);
   gtk_widget_set_sensitive (GTK_WIDGET (self->copy_screenshot_button),
                             is_screenshot);
+  gtk_widget_set_visible (GTK_WIDGET (self->stop_screencast_button),
+                          is_active_screencast);
+  gtk_widget_set_sensitive (GTK_WIDGET (self->stop_screencast_button),
+                            is_active_screencast);
 }
 
 static void
@@ -639,10 +648,9 @@ find_content_index (KasasaContentContainer *self,
 }
 
 static void
-on_screencast_eos (KasasaScreencast *screencast,
-                   gpointer          user_data)
+finish_screencast_content (KasasaContentContainer *self,
+                           KasasaScreencast        *screencast)
 {
-  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
   KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   GtkWidget *current_content = get_current_content (self);
   gboolean miniaturized = kasasa_window_is_miniaturized (window);
@@ -711,8 +719,33 @@ on_screencast_eos (KasasaScreencast *screencast,
   kasasa_content_container_update_toolbar_sensibility (self);
 }
 
+static void
+on_screencast_eos (KasasaScreencast *screencast,
+                   gpointer          user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
 
+  finish_screencast_content (self, screencast);
+}
 
+static void
+on_stop_screencast_clicked (GtkButton *button,
+                            gpointer   user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
+  GtkWidget *current_content = get_current_content (self);
+
+  if (!KASASA_IS_SCREENCAST (current_content)
+      || !kasasa_screencast_is_active (
+        KASASA_SCREENCAST (current_content)))
+    {
+      kasasa_content_container_update_toolbar_sensibility (self);
+      return;
+    }
+
+  gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
+  finish_screencast_content (self, KASASA_SCREENCAST (current_content));
+}
 
 /*************************** TAKE FIRST SCREENSHOT ***************************/
 // take_first_screenshot -> on_first_screenshot_taken
@@ -1764,20 +1797,7 @@ on_page_changed (AdwCarousel *carousel,
   if (!KASASA_IS_CONTENT (content))
     return;
 
-  if (KASASA_IS_SCREENCAST (content))
-    {
-      gtk_widget_set_sensitive (GTK_WIDGET (self->copy_screenshot_button),
-                                FALSE);
-      gtk_widget_set_sensitive (GTK_WIDGET (self->retake_screenshot_button),
-                                FALSE);
-    }
-  else
-    {
-      gtk_widget_set_sensitive (GTK_WIDGET (self->copy_screenshot_button),
-                                TRUE);
-      gtk_widget_set_sensitive (GTK_WIDGET (self->retake_screenshot_button),
-                                TRUE);
-    }
+  kasasa_content_container_update_toolbar_sensibility (self);
 
   kasasa_content_get_dimensions (KASASA_CONTENT (content),
                                  &new_height,
@@ -1981,6 +2001,7 @@ kasasa_content_container_class_init (KasasaContentContainerClass *klass)
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_delayed_screenshot_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_screencast_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, remove_content_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, stop_screencast_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, copy_screenshot_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, more_actions_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, revealer_start_buttons);
@@ -2037,6 +2058,10 @@ kasasa_content_container_init (KasasaContentContainer *self)
   g_signal_connect (self->remove_content_button,
                     "clicked",
                     G_CALLBACK (on_remove_content_clicked),
+                    self);
+  g_signal_connect (self->stop_screencast_button,
+                    "clicked",
+                    G_CALLBACK (on_stop_screencast_clicked),
                     self);
   g_signal_connect (self->copy_screenshot_button,
                     "clicked",

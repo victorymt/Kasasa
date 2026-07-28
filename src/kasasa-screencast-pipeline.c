@@ -9,6 +9,8 @@
 
 #include <unistd.h>
 
+#define SCREENCAST_FRAME_INTERVAL_NS (GST_SECOND / 30)
+
 static GstElement *
 add_element (GstElement  *pipeline,
              const gchar *factory,
@@ -97,7 +99,7 @@ build_gpu_pipeline (GstElement *pipeline,
   g_object_set (gl_filter, "caps", gl_caps, NULL);
   g_object_set (display_queue,
                 "leaky", 2,
-                "max-size-buffers", 2,
+                "max-size-buffers", 1,
                 "max-size-bytes", 0,
                 "max-size-time", (guint64) 0,
                 NULL);
@@ -127,7 +129,7 @@ build_cpu_pipeline (GstElement *pipeline,
 
   g_object_set (display_queue,
                 "leaky", 2,
-                "max-size-buffers", 2,
+                "max-size-buffers", 1,
                 "max-size-bytes", 0,
                 "max-size-time", (guint64) 0,
                 NULL);
@@ -180,10 +182,28 @@ kasasa_screencast_pipeline_build_portal (
   g_object_set (pipewire,
                 "fd", fd,
                 "path", node_id_str,
+                /* DMA-BUF cannot be mmap'ed as ordinary fd memory.  Keep the
+                 * PipeWire buffer pool on the GL path so pipewiresrc preserves
+                 * the DMA-BUF memory type instead of producing empty frames. */
                 "use-bufferpool", mode == KASASA_SCREENCAST_PIPELINE_GPU,
+                /* A single negotiated buffer is insufficient while the
+                 * compositor, GL upload and GTK render each briefly own a
+                 * frame.  Keep enough buffers in flight to prevent the portal
+                 * from repeatedly falling back to SHM. */
+                "min-buffers",
+                mode == KASASA_SCREENCAST_PIPELINE_GPU ? 8 : 1,
                 NULL);
   fd_transferred = TRUE;
-  g_object_set (gtksink, "sync", FALSE, NULL);
+  g_object_set (gtksink,
+                /* Synchronize and cap presentation at 30 FPS so variable-rate
+                 * Portal streams cannot make GTK rebuild its render tree more
+                 * often than this lightweight preview needs. */
+                "sync", TRUE,
+                "throttle-time", SCREENCAST_FRAME_INTERVAL_NS,
+                /* The application uses the paintable, not last-sample.
+                 * Keeping both would retain an extra PipeWire buffer. */
+                "enable-last-sample", FALSE,
+                NULL);
   g_object_get (gtksink, "paintable", &result->paintable, NULL);
   if (result->paintable == NULL)
     {

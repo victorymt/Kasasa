@@ -89,6 +89,32 @@ G_DEFINE_TYPE_WITH_CODE (KasasaScreencast, kasasa_screencast, ADW_TYPE_BIN,
 static void clear_gstreamer_pipeline (KasasaScreencast *self);
 static gboolean retry_portal_cpu_idle (gpointer user_data);
 
+static gchar *
+get_screencast_pipeline_preference (void)
+{
+  GSettingsSchemaSource *schema_source;
+  g_autoptr (GSettingsSchema) schema = NULL;
+  g_autoptr (GSettings) settings = NULL;
+
+  schema_source = g_settings_schema_source_get_default ();
+  if (schema_source != NULL)
+    schema = g_settings_schema_source_lookup (
+      schema_source,
+      "io.github.kelvinnovais.Kasasa",
+      TRUE);
+
+  if (schema == NULL
+      || !g_settings_schema_has_key (schema, "screencast-pipeline"))
+    {
+      g_message ("The installed settings schema has no screencast-pipeline "
+                 "key; using the GPU pipeline preference");
+      return g_strdup ("gpu");
+    }
+
+  settings = g_settings_new_full (schema, NULL, NULL);
+  return g_settings_get_string (settings, "screencast-pipeline");
+}
+
 static void
 emit_cpu_fallback (KasasaScreencast *self)
 {
@@ -606,7 +632,6 @@ kasasa_screencast_show (KasasaScreencast *self,
 
 {
   KasasaScreencastPipelineMode mode;
-  g_autoptr (GSettings) settings = NULL;
   g_autoptr (GError) pipeline_error = NULL;
   g_autofree gchar *pipeline_preference = NULL;
   gboolean gpu_requested;
@@ -634,9 +659,7 @@ kasasa_screencast_show (KasasaScreencast *self,
   if (expected_width > 0 && expected_height > 0)
     new_dimension (self, expected_width, expected_height);
 
-  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
-  pipeline_preference = g_settings_get_string (settings,
-                                                "screencast-pipeline");
+  pipeline_preference = get_screencast_pipeline_preference ();
   gpu_requested = g_strcmp0 (pipeline_preference, "gpu") == 0;
   mode = kasasa_screencast_pipeline_select_mode (pipeline_preference);
   if (!activate_portal_pipeline (self, fd, node_id, mode, &pipeline_error)

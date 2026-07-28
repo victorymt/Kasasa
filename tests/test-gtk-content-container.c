@@ -51,6 +51,7 @@ typedef struct
   GtkWidget *retake_button;
   GtkWidget *delayed_button;
   GtkWidget *screencast_button;
+  GtkWidget *stop_screencast_button;
   GtkWidget *toolbar_overlay;
   gchar *image_path;
   gchar *image_uri;
@@ -378,6 +379,8 @@ fixture_setup (Fixture *fixture,
                                                "add_delayed_screenshot_button");
   fixture->screencast_button = find_widget_by_id (
     GTK_WIDGET (fixture->container), "add_screencast_button");
+  fixture->stop_screencast_button = find_widget_by_id (
+    GTK_WIDGET (fixture->container), "stop_screencast_button");
   fixture->toolbar_overlay = find_widget_by_id (GTK_WIDGET (fixture->container),
                                                 "toolbar_overlay");
   g_assert_nonnull (fixture->carousel);
@@ -387,6 +390,7 @@ fixture_setup (Fixture *fixture,
   g_assert_nonnull (fixture->retake_button);
   g_assert_nonnull (fixture->delayed_button);
   g_assert_nonnull (fixture->screencast_button);
+  g_assert_nonnull (fixture->stop_screencast_button);
   g_assert_nonnull (fixture->toolbar_overlay);
 
   fake_portal_result = FAKE_PORTAL_SUCCESS;
@@ -472,6 +476,7 @@ test_content_limit_and_toolbar (Fixture *fixture,
   g_autoptr (GError) error = NULL;
 
   g_assert_false (gtk_widget_get_sensitive (fixture->remove_button));
+  g_assert_false (gtk_widget_get_visible (fixture->stop_screencast_button));
 
   for (guint i = 0; i < MAX_N_CONTENTS; i++)
     append_screenshot (fixture);
@@ -479,6 +484,7 @@ test_content_limit_and_toolbar (Fixture *fixture,
   g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel),
                     ==,
                     MAX_N_CONTENTS);
+  g_assert_false (gtk_widget_get_visible (fixture->stop_screencast_button));
   g_assert_false (gtk_widget_get_sensitive (fixture->add_button));
   g_assert_false (gtk_widget_get_sensitive (fixture->more_actions_button));
   g_assert_true (gtk_widget_get_sensitive (fixture->remove_button));
@@ -509,6 +515,7 @@ test_inactive_screencast_does_not_block (Fixture *fixture,
   g_signal_emit_by_name (fixture->remove_button, "clicked");
   dispatch_pending_sources ();
 
+  g_assert_false (gtk_widget_get_visible (fixture->stop_screencast_button));
   g_assert_true (gtk_widget_get_sensitive (fixture->screencast_button));
   g_signal_emit_by_name (fixture->screencast_button, "clicked");
   dispatch_pending_sources ();
