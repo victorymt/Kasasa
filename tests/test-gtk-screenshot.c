@@ -26,6 +26,7 @@
 
 #include "kasasa-content.h"
 #include "kasasa-screencast.h"
+#include "kasasa-screencast-pipeline.h"
 #include "kasasa-screenshot.h"
 #include "kasasa-window.h"
 
@@ -173,6 +174,200 @@ test_screencast_rejects_invalid_connection (void)
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
   g_assert_cmpint (fcntl (fd, F_GETFD), ==, -1);
   g_assert_cmpint (errno, ==, EBADF);
+}
+
+static void
+test_cpu_screencast_pipeline (void)
+{
+  KasasaScreencastPipeline pipeline = { 0 };
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GstElement) pipewire = NULL;
+  g_autoptr (GstElement) display_queue = NULL;
+  g_autoptr (GstElement) display_convert = NULL;
+  g_autoptr (GstElement) videocrop = NULL;
+  g_autoptr (GstElement) analysis_queue = NULL;
+  g_autoptr (GstElement) analysis_sink = NULL;
+  g_autoptr (GstElement) gldownload = NULL;
+  g_autoptr (GstElement) glupload = NULL;
+  gboolean use_bufferpool = TRUE;
+  gint leaky = 0;
+  guint max_size_buffers = 0;
+
+  g_assert_true (kasasa_screencast_pipeline_build_portal (
+                   -1,
+                   1,
+                   KASASA_SCREENCAST_PIPELINE_CPU,
+                   &pipeline,
+                   &error));
+  g_assert_no_error (error);
+  g_assert_nonnull (pipeline.pipeline);
+  g_assert_nonnull (pipeline.paintable);
+
+  pipewire = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                  "pipewire_element");
+  display_queue = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                       "display_queue");
+  display_convert = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                         "display_convert");
+  videocrop = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "videocrop");
+  analysis_queue = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                        "analysis_queue");
+  analysis_sink = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                       "analysis_sink");
+  gldownload = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "gldownload");
+  glupload = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "glupload");
+  g_assert_nonnull (pipewire);
+  g_assert_nonnull (display_queue);
+  g_assert_nonnull (display_convert);
+  g_assert_null (videocrop);
+  g_assert_null (analysis_queue);
+  g_assert_null (analysis_sink);
+  g_assert_null (gldownload);
+  g_assert_null (glupload);
+
+  g_object_get (pipewire, "use-bufferpool", &use_bufferpool, NULL);
+  g_object_get (display_queue,
+                "leaky", &leaky,
+                "max-size-buffers", &max_size_buffers,
+                NULL);
+  g_assert_false (use_bufferpool);
+  g_assert_cmpint (leaky, ==, 2);
+  g_assert_cmpuint (max_size_buffers, ==, 2);
+
+  kasasa_screencast_pipeline_clear (&pipeline);
+}
+
+static void
+test_portal_pipeline_closes_untransferred_fd (void)
+{
+  KasasaScreencastPipeline pipeline = { 0 };
+  GstRegistry *registry = gst_registry_get ();
+  GstPluginFeature *pipewire_feature;
+  g_autoptr (GError) error = NULL;
+  gboolean built;
+  gboolean fd_was_closed;
+  gint fd;
+
+  pipewire_feature = gst_registry_lookup_feature (registry, "pipewiresrc");
+  if (pipewire_feature == NULL)
+    {
+      g_test_skip ("pipewiresrc is unavailable");
+      return;
+    }
+
+  gst_registry_remove_feature (registry, pipewire_feature);
+  fd = open ("/dev/null", O_RDONLY);
+  g_assert_cmpint (fd, >=, 0);
+  built = kasasa_screencast_pipeline_build_portal (
+    fd,
+    1,
+    KASASA_SCREENCAST_PIPELINE_CPU,
+    &pipeline,
+    &error);
+  fd_was_closed = fcntl (fd, F_GETFD) == -1 && errno == EBADF;
+  g_assert_true (gst_registry_add_feature (registry, pipewire_feature));
+  gst_object_unref (pipewire_feature);
+  kasasa_screencast_pipeline_clear (&pipeline);
+
+  g_assert_false (built);
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED);
+  g_assert_true (fd_was_closed);
+}
+
+static void
+test_gpu_screencast_pipeline (void)
+{
+  KasasaScreencastPipeline pipeline = { 0 };
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GstElement) pipewire = NULL;
+  g_autoptr (GstElement) glupload = NULL;
+  g_autoptr (GstElement) gl_filter = NULL;
+  g_autoptr (GstElement) display_queue = NULL;
+  g_autoptr (GstElement) sink = NULL;
+  g_autoptr (GstElement) gpu_crop = NULL;
+  g_autoptr (GstElement) analysis_queue = NULL;
+  g_autoptr (GstElement) analysis_sink = NULL;
+  g_autoptr (GstElement) gldownload = NULL;
+  g_autoptr (GstElement) glsinkbin = NULL;
+  g_autoptr (GstElement) videocrop = NULL;
+  g_autoptr (GstPad) queue_sink_pad = NULL;
+  g_autoptr (GstPad) queue_upstream_pad = NULL;
+  g_autoptr (GstElement) queue_upstream = NULL;
+  g_autoptr (GstPad) upload_sink_pad = NULL;
+  g_autoptr (GstPad) upload_upstream_pad = NULL;
+  g_autoptr (GstElement) upload_upstream = NULL;
+  g_autoptr (GstCaps) caps = NULL;
+  const GstCapsFeatures *features;
+  gboolean use_bufferpool = FALSE;
+  gint leaky = 0;
+  guint max_size_buffers = 0;
+
+  if (!kasasa_screencast_pipeline_gpu_available ())
+    {
+      g_test_skip ("Required GStreamer GL elements are unavailable");
+      return;
+    }
+
+  g_assert_true (kasasa_screencast_pipeline_build_portal (
+                   -1,
+                   1,
+                   KASASA_SCREENCAST_PIPELINE_GPU,
+                   &pipeline,
+                   &error));
+  g_assert_no_error (error);
+  g_assert_nonnull (pipeline.pipeline);
+  g_assert_nonnull (pipeline.paintable);
+
+  pipewire = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                  "pipewire_element");
+  glupload = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "glupload");
+  gl_filter = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "gl_filter");
+  display_queue = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                       "display_queue");
+  sink = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "sink");
+  gpu_crop = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "gpu_crop");
+  analysis_queue = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                        "analysis_queue");
+  analysis_sink = gst_bin_get_by_name (GST_BIN (pipeline.pipeline),
+                                       "analysis_sink");
+  gldownload = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "gldownload");
+  glsinkbin = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "glsinkbin");
+  videocrop = gst_bin_get_by_name (GST_BIN (pipeline.pipeline), "videocrop");
+  g_assert_nonnull (pipewire);
+  g_assert_nonnull (glupload);
+  g_assert_nonnull (gl_filter);
+  g_assert_nonnull (display_queue);
+  g_assert_nonnull (sink);
+  g_assert_null (glsinkbin);
+  g_assert_null (gpu_crop);
+  g_assert_null (analysis_queue);
+  g_assert_null (analysis_sink);
+  g_assert_null (gldownload);
+  g_assert_null (videocrop);
+
+  g_object_get (pipewire, "use-bufferpool", &use_bufferpool, NULL);
+  g_object_get (gl_filter, "caps", &caps, NULL);
+  g_object_get (display_queue,
+                "leaky", &leaky,
+                "max-size-buffers", &max_size_buffers,
+                NULL);
+  g_assert_true (use_bufferpool);
+  g_assert_cmpint (leaky, ==, 2);
+  g_assert_cmpuint (max_size_buffers, ==, 2);
+  g_assert_nonnull (caps);
+  features = gst_caps_get_features (caps, 0);
+  g_assert_true (gst_caps_features_contains (features, "memory:GLMemory"));
+
+  queue_sink_pad = gst_element_get_static_pad (display_queue, "sink");
+  queue_upstream_pad = gst_pad_get_peer (queue_sink_pad);
+  queue_upstream = gst_pad_get_parent_element (queue_upstream_pad);
+  upload_sink_pad = gst_element_get_static_pad (glupload, "sink");
+  upload_upstream_pad = gst_pad_get_peer (upload_sink_pad);
+  upload_upstream = gst_pad_get_parent_element (upload_upstream_pad);
+  g_assert_true (queue_upstream == pipewire);
+  g_assert_true (upload_upstream == display_queue);
+
+  kasasa_screencast_pipeline_clear (&pipeline);
 }
 
 static void
@@ -337,6 +532,7 @@ main (int argc, char **argv)
     }
 
   adw_init ();
+  gst_init (NULL, NULL);
 
   g_test_add_func ("/gtk/screenshot/layout", test_screenshot_layout);
   g_test_add_func ("/gtk/screencast/layout", test_screencast_layout);
@@ -344,6 +540,12 @@ main (int argc, char **argv)
                    test_content_fit_ignores_rounding_gaps);
   g_test_add_func ("/gtk/screencast/invalid-connection",
                    test_screencast_rejects_invalid_connection);
+  g_test_add_func ("/gtk/screencast/cpu-pipeline",
+                   test_cpu_screencast_pipeline);
+  g_test_add_func ("/gtk/screencast/early-failure-closes-fd",
+                   test_portal_pipeline_closes_untransferred_fd);
+  g_test_add_func ("/gtk/screencast/gpu-pipeline",
+                   test_gpu_screencast_pipeline);
   g_test_add_func ("/gtk/screenshot/failed-replacement",
                    test_failed_replacement_preserves_screenshot);
   g_test_add_func ("/gtk/screenshot/trashes-exact-file",

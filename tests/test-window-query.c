@@ -21,6 +21,8 @@
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-window-query.h"
 
+#include <glib/gstdio.h>
+
 static const gchar *clients_json =
   "["
   "  {"
@@ -193,6 +195,163 @@ test_handle_from_address (void)
   g_clear_error (&error);
 }
 
+static void
+test_live_active_skips_client_listing (void)
+{
+  static const gchar script[] =
+    "#!/bin/sh\n"
+    "printf '%s\\n' \"$*\" >> \"$KASASA_QUERY_LOG\"\n"
+    "if [ \"$2\" = activewindow ]; then\n"
+    "  printf '%s\\n' '{\"address\":\"0xabc\",\"class\":\"Alacritty\","
+    "\"title\":\"shell\",\"mapped\":true,\"floating\":false,"
+    "\"monitor\":0,\"workspace\":{\"id\":1,\"name\":\"1\"},"
+    "\"at\":[0,0],\"size\":[800,600]}'\n"
+    "  exit 0\n"
+    "fi\n"
+    "exit 42\n";
+  g_autofree gchar *old_path = NULL;
+  g_autofree gchar *test_path = NULL;
+  g_autofree gchar *tmp_dir = NULL;
+  g_autofree gchar *hyprctl_path = NULL;
+  g_autofree gchar *log_path = NULL;
+  g_autofree gchar *log_contents = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (KasasaWindowClient) resolved = NULL;
+
+  if (!g_test_subprocess ())
+    {
+      g_test_trap_subprocess (NULL, 5 * G_TIME_SPAN_SECOND, 0);
+      g_test_trap_assert_passed ();
+      return;
+    }
+
+  tmp_dir = g_dir_make_tmp ("kasasa-window-query-test-XXXXXX", &error);
+  g_assert_no_error (error);
+  hyprctl_path = g_build_filename (tmp_dir, "hyprctl", NULL);
+  log_path = g_build_filename (tmp_dir, "calls.log", NULL);
+  g_assert_true (g_file_set_contents (hyprctl_path, script, -1, &error));
+  g_assert_no_error (error);
+  g_assert_cmpint (g_chmod (hyprctl_path, 0700), ==, 0);
+
+  old_path = g_strdup (g_getenv ("PATH"));
+  test_path = g_strconcat (tmp_dir, ":", old_path != NULL ? old_path : "", NULL);
+  g_setenv ("PATH", test_path, TRUE);
+  g_setenv ("HYPRLAND_INSTANCE_SIGNATURE", "kasasa-test-instance", TRUE);
+  g_setenv ("KASASA_QUERY_LOG", log_path, TRUE);
+
+  resolved = kasasa_window_query_resolve_live ("active", &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (resolved);
+  g_assert_cmpstr (resolved->address, ==, "0xabc");
+  g_assert_true (g_file_get_contents (log_path, &log_contents, NULL, &error));
+  g_assert_no_error (error);
+  g_assert_cmpstr (log_contents, ==, "-j activewindow\n");
+
+  g_assert_cmpint (g_remove (log_path), ==, 0);
+  g_assert_cmpint (g_remove (hyprctl_path), ==, 0);
+  g_assert_cmpint (g_rmdir (tmp_dir), ==, 0);
+}
+
+static void
+ignore_stream_frame (gpointer                    user_data,
+                     const guint8               *data,
+                     gint                        width,
+                     gint                        height,
+                     gint                        stride,
+                     KasasaHyprlandStreamFormat  format,
+                     gboolean                    y_invert)
+{
+  (void) user_data;
+  (void) data;
+  (void) width;
+  (void) height;
+  (void) stride;
+  (void) format;
+  (void) y_invert;
+}
+
+typedef struct
+{
+  GError *error;
+  gint called;
+} StreamErrorResult;
+
+static void
+record_stream_error (gpointer      user_data,
+                     const GError *error)
+{
+  StreamErrorResult *result = user_data;
+
+  result->error = g_error_copy (error);
+  g_atomic_int_set (&result->called, TRUE);
+}
+
+static void
+test_stream_reports_connection_failure (void)
+{
+  g_autofree gchar *old_path = NULL;
+  g_autofree gchar *test_path = NULL;
+  g_autofree gchar *tmp_dir = NULL;
+  g_autofree gchar *hyprctl_path = NULL;
+  g_autoptr (GError) setup_error = NULL;
+  g_autoptr (GError) error = NULL;
+  StreamErrorResult result = { 0 };
+  KasasaHyprlandStream *stream;
+
+  if (!g_test_subprocess ())
+    {
+      g_test_trap_subprocess (NULL, 5 * G_TIME_SPAN_SECOND, 0);
+      g_test_trap_assert_passed ();
+      return;
+    }
+
+  old_path = g_strdup (g_getenv ("PATH"));
+  tmp_dir = g_dir_make_tmp ("kasasa-hyprland-stream-test-XXXXXX", &setup_error);
+  g_assert_no_error (setup_error);
+  g_assert_nonnull (tmp_dir);
+
+  hyprctl_path = g_build_filename (tmp_dir, "hyprctl", NULL);
+  g_assert_true (g_file_set_contents (hyprctl_path,
+                                      "#!/bin/sh\nexit 0\n",
+                                      -1,
+                                      &setup_error));
+  g_assert_no_error (setup_error);
+  g_assert_cmpint (g_chmod (hyprctl_path, 0700), ==, 0);
+
+  test_path = g_strconcat (tmp_dir, ":", old_path != NULL ? old_path : "", NULL);
+  g_setenv ("PATH", test_path, TRUE);
+  g_setenv ("HYPRLAND_INSTANCE_SIGNATURE", "kasasa-test-instance", TRUE);
+  g_setenv ("WAYLAND_DISPLAY", "kasasa-test-display-does-not-exist", TRUE);
+  stream = kasasa_hyprland_stream_start (1,
+                                         ignore_stream_frame,
+                                         record_stream_error,
+                                         &result,
+                                         NULL,
+                                         &error);
+
+  g_assert_no_error (error);
+  g_assert_nonnull (stream);
+
+  {
+    gint64 deadline = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
+
+    while (!g_atomic_int_get (&result.called)
+           && g_get_monotonic_time () < deadline)
+      g_usleep (1000);
+  }
+
+  kasasa_hyprland_stream_stop (stream);
+
+  g_assert_cmpint (g_remove (hyprctl_path), ==, 0);
+  g_assert_cmpint (g_rmdir (tmp_dir), ==, 0);
+
+  g_assert_true (g_atomic_int_get (&result.called));
+  g_assert_error (result.error,
+                  KASASA_WINDOW_QUERY_ERROR,
+                  KASASA_WINDOW_QUERY_ERROR_FAILED);
+  g_clear_error (&result.error);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -200,5 +359,9 @@ main (int argc, char **argv)
   g_test_add_func ("/unit/window-query/spec-parse", test_spec_parse);
   g_test_add_func ("/unit/window-query/resolve", test_parse_and_resolve);
   g_test_add_func ("/unit/window-query/handle", test_handle_from_address);
+  g_test_add_func ("/unit/window-query/live-active",
+                   test_live_active_skips_client_listing);
+  g_test_add_func ("/unit/hyprland-stream/connection-failure",
+                   test_stream_reports_connection_failure);
   return g_test_run ();
 }

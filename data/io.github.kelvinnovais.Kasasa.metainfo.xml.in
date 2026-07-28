@@ -5,10 +5,7 @@
   <name>Kasasa</name>
   <summary>Snip and pin useful information</summary>
   <developer id="io.github.kelvinnovais">
-    <name translate="no">Kelvin Novais</name>
-  </developer>
-  <developer id="io.github.victorymt">
-    <name translate="no">victorymt</name>
+    <name translate="no">Kelvin Novais and victorymt</name>
   </developer>
 
   <metadata_license>CC0-1.0</metadata_license>
@@ -223,4 +220,3 @@
   <url type="contribute">https://github.com/KelvinNovais/Kasasa/blob/main/CONTRIBUTING.md</url>
   <url type="translate">https://github.com/KelvinNovais/Kasasa/blob/main/CONTRIBUTING.md#translating</url>
 </component>
-
