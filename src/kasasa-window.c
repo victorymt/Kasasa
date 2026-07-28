@@ -1292,8 +1292,6 @@ on_mouse_enter_content_container (GtkEventControllerMotion *event_controller_mot
   if (gtk_menu_button_get_active (self->menu_button))
     return;
 
-  self->mouse_over_window = TRUE;
-
   kasasa_window_change_opacity (self, OPACITY_DECREASE);
 
   // Do not reveal HeaderBar/Toolbar if miniaturization is active; this will done
@@ -1319,7 +1317,6 @@ on_mouse_leave_content_container (GtkEventControllerMotion *event_controller_mot
   if (kasasa_content_container_controls_active (self->content_container))
     return;
 
-  self->mouse_over_window = FALSE;
   kasasa_window_change_opacity (self, OPACITY_INCREASE);
   hide_header_bar (self);
 }
@@ -1336,7 +1333,6 @@ on_mouse_enter_header_bar (GtkEventControllerMotion *event_controller_motion,
   if (gtk_menu_button_get_active (self->menu_button))
     return;
 
-  self->mouse_over_window = TRUE;
   kasasa_window_change_opacity (self, OPACITY_INCREASE);
 }
 
@@ -1351,7 +1347,6 @@ on_mouse_leave_header_bar (GtkEventControllerMotion *event_controller_motion,
   if (gtk_menu_button_get_active (self->menu_button))
     return;
 
-  self->mouse_over_window = FALSE;
   hide_header_bar (self);
 }
 
@@ -1359,7 +1354,10 @@ static void
 on_mouse_enter_window (GtkEventControllerMotion *event_controller_motion,
                        gpointer user_data)
 {
-  kasasa_window_miniaturize_window (KASASA_WINDOW (user_data), FALSE);
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  self->mouse_over_window = TRUE;
+  kasasa_window_miniaturize_window (self, FALSE);
 }
 
 static void
@@ -1369,6 +1367,8 @@ on_mouse_leave_window (GtkEventControllerMotion *event_controller_motion,
   KasasaWindow *self = KASASA_WINDOW (user_data);
   guint interval = (guint) 1000 * g_settings_get_double (self->settings,
                                                          "controls-timeout");
+
+  self->mouse_over_window = FALSE;
 
   kasasa_source_set_timeout_once (&self->hide_toolbar_source,
                                   interval,
@@ -1800,6 +1800,7 @@ kasasa_window_init (KasasaWindow *self)
 
   // Initialize self variables
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  self->mouse_over_window = FALSE;
   self->hiding_window = FALSE;
   self->pending_resize = FALSE;
   self->first_resize = TRUE;

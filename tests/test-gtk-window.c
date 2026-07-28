@@ -77,6 +77,27 @@ find_widget_by_id (GtkWidget  *widget,
   return NULL;
 }
 
+static GtkEventController *
+find_motion_controller (GtkWidget *widget)
+{
+  g_autoptr (GListModel) controllers = NULL;
+  guint n_controllers;
+
+  controllers = gtk_widget_observe_controllers (widget);
+  n_controllers = g_list_model_get_n_items (controllers);
+  for (guint i = 0; i < n_controllers; i++)
+    {
+      GtkEventController *controller = g_list_model_get_item (controllers, i);
+
+      if (GTK_IS_EVENT_CONTROLLER_MOTION (controller))
+        return controller;
+
+      g_object_unref (controller);
+    }
+
+  return NULL;
+}
+
 static void
 dispatch_pending_sources (void)
 {
@@ -211,6 +232,72 @@ test_quit_wipes_real_window_content (void)
   g_assert_true (close_data.close_observed);
   g_assert_true (close_data.content_was_empty);
   g_assert_cmpint (g_remove (image_path), ==, 0);
+}
+
+static void
+test_internal_motion_keeps_controls_visible (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  g_autoptr (GtkEventController) content_motion = NULL;
+  g_autoptr (GtkEventController) window_motion = NULL;
+  GtkWidget *content_container;
+  GtkRevealer *header_bar_revealer;
+  KasasaWindow *window;
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  g_assert_true (g_settings_set_boolean (settings, "auto-hide-menu", TRUE));
+  g_assert_true (g_settings_set_double (settings, "controls-timeout", 0.1));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "miniaturize-window",
+                                         FALSE));
+
+  application_id = g_strdup_printf ("io.github.kelvinnovais.Kasasa.Motion%u",
+                                    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  g_assert_true (g_application_register (G_APPLICATION (application),
+                                         NULL,
+                                         &error));
+  g_assert_no_error (error);
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", application,
+                         NULL);
+  content_container = find_widget_by_id (GTK_WIDGET (window),
+                                         "content_container");
+  header_bar_revealer = GTK_REVEALER (
+    find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+  g_assert_nonnull (content_container);
+  g_assert_nonnull (header_bar_revealer);
+
+  window_motion = find_motion_controller (GTK_WIDGET (window));
+  content_motion = find_motion_controller (content_container);
+  g_assert_nonnull (window_motion);
+  g_assert_nonnull (content_motion);
+
+  gtk_window_present (GTK_WINDOW (window));
+  dispatch_pending_sources ();
+
+  g_signal_emit_by_name (window_motion, "enter", 10.0, 10.0);
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+
+  /* Moving onto an overlay child leaves the content widget, but not the pin. */
+  g_signal_emit_by_name (content_motion, "leave");
+  dispatch_sources_for (150);
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+
+  /* A real top-level leave must still hide the controls after the timeout. */
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_signal_emit_by_name (content_motion, "leave");
+  g_signal_emit_by_name (window_motion, "leave");
+  dispatch_sources_for (150);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+
+  gtk_window_destroy (GTK_WINDOW (window));
+  dispatch_pending_sources ();
 }
 
 static gboolean
@@ -697,6 +784,8 @@ main (int argc, char **argv)
                 NULL);
   g_test_add_func ("/gtk/window/quit-wipes-content",
                    test_quit_wipes_real_window_content);
+  g_test_add_func ("/gtk/window/internal-motion-keeps-controls-visible",
+                   test_internal_motion_keeps_controls_visible);
   g_test_add_func ("/gtk/window/continuous-zoom-shrink",
                    test_continuous_zoom_shrink);
   g_test_add_func ("/gtk/window/switch-resize-modes",
