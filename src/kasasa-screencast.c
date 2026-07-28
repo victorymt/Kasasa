@@ -997,8 +997,6 @@ kasasa_screencast_class_init (KasasaScreencastClass *klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
-  gst_init (NULL, NULL);
-
   // Signals
   obj_signals[SIGNAL_NEW_DIMENSION] =
     g_signal_new ("new-dimension",
@@ -1086,6 +1084,14 @@ KasasaScreencast *
 kasasa_screencast_new (void)
 {
   return KASASA_SCREENCAST (g_object_new (KASASA_TYPE_SCREENCAST, NULL));
+}
+
+gboolean
+kasasa_screencast_is_active (KasasaScreencast *self)
+{
+  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
+
+  return !self->finished;
 }
 
 // https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/tree/main/video/gtk4/examples?ref_type=heads

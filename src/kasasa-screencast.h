@@ -33,6 +33,7 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE (KasasaScreencast, kasasa_screencast, KASASA, SCREENCAST, AdwBin)
 
 KasasaScreencast *kasasa_screencast_new (void);
+gboolean kasasa_screencast_is_active (KasasaScreencast *screencast);
 gboolean kasasa_screencast_show (KasasaScreencast *screencast,
                                  XdpSession       *session,
                                  gint              fd,

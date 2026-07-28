@@ -20,9 +20,11 @@
 
 #include <adwaita.h>
 #include <glib/gstdio.h>
+#include <gst/gst.h>
 #include <unistd.h>
 
 #include "kasasa-content-container.h"
+#include "kasasa-screencast.h"
 #include "kasasa-screenshot.h"
 #include "kasasa-window.h"
 
@@ -48,6 +50,7 @@ typedef struct
   GtkWidget *remove_button;
   GtkWidget *retake_button;
   GtkWidget *delayed_button;
+  GtkWidget *screencast_button;
   GtkWidget *toolbar_overlay;
   gchar *image_path;
   gchar *image_uri;
@@ -66,6 +69,10 @@ static const gchar *fake_portal_uri;
 static GTask *fake_pending_task;
 static guint fake_take_calls;
 static guint fake_finish_calls;
+static GTask *fake_pending_screencast_create_task;
+static guint fake_screencast_create_calls;
+static guint fake_screencast_create_finish_calls;
+static guint fake_screencast_start_calls;
 static guint switch_resize_calls;
 static KasasaSwitchResizeMode last_switch_resize_mode;
 
@@ -123,6 +130,62 @@ fake_take_screenshot_finish (XdpPortal    *portal,
 static const KasasaScreenshotPortalOps fake_portal_ops = {
   .take_screenshot = fake_take_screenshot,
   .take_screenshot_finish = fake_take_screenshot_finish,
+};
+
+static void
+fake_create_screencast_session (XdpPortal          *portal,
+                                XdpOutputType       outputs,
+                                XdpScreencastFlags  flags,
+                                XdpCursorMode       cursor_mode,
+                                XdpPersistMode      persist_mode,
+                                const gchar        *restore_token,
+                                GCancellable       *cancellable,
+                                GAsyncReadyCallback callback,
+                                gpointer            data)
+{
+  fake_screencast_create_calls++;
+  g_assert_null (fake_pending_screencast_create_task);
+  fake_pending_screencast_create_task =
+    g_task_new (portal, cancellable, callback, data);
+}
+
+static XdpSession *
+fake_create_screencast_session_finish (XdpPortal    *portal,
+                                       GAsyncResult *result,
+                                       GError      **error)
+{
+  fake_screencast_create_finish_calls++;
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+static void
+fake_start_screencast_session (XdpSession         *session,
+                               XdpParent          *parent,
+                               GCancellable       *cancellable,
+                               GAsyncReadyCallback callback,
+                               gpointer            data)
+{
+  GTask *task;
+
+  fake_screencast_start_calls++;
+  task = g_task_new (session, cancellable, callback, data);
+  g_task_return_boolean (task, TRUE);
+  g_object_unref (task);
+}
+
+static gboolean
+fake_start_screencast_session_finish (XdpSession   *session,
+                                      GAsyncResult *result,
+                                      GError      **error)
+{
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+static const KasasaScreencastPortalOps fake_screencast_portal_ops = {
+  .create_session = fake_create_screencast_session,
+  .create_session_finish = fake_create_screencast_session_finish,
+  .start_session = fake_start_screencast_session,
+  .start_session_finish = fake_start_screencast_session_finish,
 };
 
 /* The container state machine does not need real window animations. */
@@ -250,6 +313,25 @@ dispatch_pending_sources (void)
 }
 
 static void
+wait_for_widget_sensitivity (GtkWidget *widget,
+                             gboolean   sensitive,
+                             guint      timeout_ms)
+{
+  gint64 deadline = g_get_monotonic_time ()
+                   + ((gint64) timeout_ms * G_TIME_SPAN_MILLISECOND);
+
+  while (gtk_widget_get_sensitive (widget) != sensitive
+         && g_get_monotonic_time () < deadline)
+    {
+      g_main_context_iteration (NULL, FALSE);
+      g_usleep (1000);
+    }
+
+  dispatch_pending_sources ();
+  g_assert_cmpint (gtk_widget_get_sensitive (widget), ==, sensitive);
+}
+
+static void
 fixture_setup (Fixture *fixture,
                gconstpointer user_data)
 {
@@ -294,6 +376,8 @@ fixture_setup (Fixture *fixture,
                                               "retake_screenshot_button");
   fixture->delayed_button = find_widget_by_id (GTK_WIDGET (fixture->container),
                                                "add_delayed_screenshot_button");
+  fixture->screencast_button = find_widget_by_id (
+    GTK_WIDGET (fixture->container), "add_screencast_button");
   fixture->toolbar_overlay = find_widget_by_id (GTK_WIDGET (fixture->container),
                                                 "toolbar_overlay");
   g_assert_nonnull (fixture->carousel);
@@ -302,6 +386,7 @@ fixture_setup (Fixture *fixture,
   g_assert_nonnull (fixture->remove_button);
   g_assert_nonnull (fixture->retake_button);
   g_assert_nonnull (fixture->delayed_button);
+  g_assert_nonnull (fixture->screencast_button);
   g_assert_nonnull (fixture->toolbar_overlay);
 
   fake_portal_result = FAKE_PORTAL_SUCCESS;
@@ -309,8 +394,14 @@ fixture_setup (Fixture *fixture,
   fake_take_calls = 0;
   fake_finish_calls = 0;
   g_assert_null (fake_pending_task);
+  g_assert_null (fake_pending_screencast_create_task);
+  fake_screencast_create_calls = 0;
+  fake_screencast_create_finish_calls = 0;
+  fake_screencast_start_calls = 0;
   kasasa_content_container_set_screenshot_portal_ops (fixture->container,
                                                       &fake_portal_ops);
+  kasasa_content_container_set_screencast_portal_ops (
+    fixture->container, &fake_screencast_portal_ops, 1000);
 
   gtk_window_present (fixture->window);
   dispatch_pending_sources ();
@@ -323,6 +414,18 @@ fixture_teardown (Fixture *fixture,
   if (fixture->window != NULL)
     {
       gtk_window_destroy (fixture->window);
+      dispatch_pending_sources ();
+    }
+
+  if (fake_pending_screencast_create_task != NULL)
+    {
+      GTask *task = g_steal_pointer (&fake_pending_screencast_create_task);
+
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CANCELLED,
+                               "screencast test cleanup");
+      g_object_unref (task);
       dispatch_pending_sources ();
     }
 
@@ -390,6 +493,40 @@ test_content_limit_and_toolbar (Fixture *fixture,
   g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel),
                     ==,
                     MAX_N_CONTENTS);
+}
+
+static void
+test_inactive_screencast_does_not_block (Fixture *fixture,
+                                         gconstpointer user_data)
+{
+  GtkWidget *screenshot = append_screenshot (fixture);
+  GtkWidget *screencast = GTK_WIDGET (kasasa_screencast_new ());
+  GTask *task;
+
+  g_assert_false (kasasa_screencast_is_active (KASASA_SCREENCAST (screencast)));
+  adw_carousel_append (fixture->carousel, screencast);
+  select_page (fixture, screenshot);
+  g_signal_emit_by_name (fixture->remove_button, "clicked");
+  dispatch_pending_sources ();
+
+  g_assert_true (gtk_widget_get_sensitive (fixture->screencast_button));
+  g_signal_emit_by_name (fixture->screencast_button, "clicked");
+  dispatch_pending_sources ();
+
+  g_assert_cmpuint (fake_screencast_create_calls, ==, 1);
+  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_true (kasasa_content_container_cancel_screencast_request (
+    fixture->container));
+  task = g_steal_pointer (&fake_pending_screencast_create_task);
+  g_task_return_new_error (task,
+                           G_IO_ERROR,
+                           G_IO_ERROR_CANCELLED,
+                           "inactive screencast test cancelled");
+  g_object_unref (task);
+  dispatch_pending_sources ();
+
+  g_assert_cmpuint (fake_screencast_create_finish_calls, ==, 1);
+  g_assert_true (gtk_widget_get_sensitive (fixture->screencast_button));
 }
 
 static void
@@ -699,10 +836,69 @@ test_delayed_screenshot_cancel_restores_state (Fixture *fixture,
   g_assert_cmpuint (fake_take_calls, ==, 0);
 }
 
+static void
+test_screencast_timeout_late_callback_and_retry (Fixture *fixture,
+                                                 gconstpointer user_data)
+{
+  GTask *old_task;
+  GTask *current_task;
+
+  kasasa_content_container_set_screencast_portal_ops (
+    fixture->container, &fake_screencast_portal_ops, 5);
+
+  g_test_expect_message (NULL,
+                         G_LOG_LEVEL_WARNING,
+                         "*screencast service did not respond*");
+  g_signal_emit_by_name (fixture->screencast_button, "clicked");
+  g_assert_cmpuint (fake_screencast_create_calls, ==, 1);
+  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  wait_for_widget_sensitivity (fixture->toolbar_overlay, TRUE, 500);
+  g_test_assert_expected_messages ();
+  g_assert_false (kasasa_content_container_cancel_screencast_request (
+    fixture->container));
+
+  old_task = g_steal_pointer (&fake_pending_screencast_create_task);
+  kasasa_content_container_set_screencast_portal_ops (
+    fixture->container, &fake_screencast_portal_ops, 1000);
+  g_signal_emit_by_name (fixture->screencast_button, "clicked");
+  g_assert_cmpuint (fake_screencast_create_calls, ==, 2);
+  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_nonnull (fake_pending_screencast_create_task);
+
+  g_task_return_new_error (old_task,
+                           G_IO_ERROR,
+                           G_IO_ERROR_CANCELLED,
+                           "old screencast request completed late");
+  g_object_unref (old_task);
+  dispatch_pending_sources ();
+
+  g_assert_cmpuint (fake_screencast_create_finish_calls, ==, 1);
+  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_true (gtk_widget_activate_action (GTK_WIDGET (fixture->container),
+                                             "screencast.cancel",
+                                             NULL));
+  g_assert_false (kasasa_content_container_cancel_screencast_request (
+    fixture->container));
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+
+  current_task = g_steal_pointer (&fake_pending_screencast_create_task);
+  g_task_return_new_error (current_task,
+                           G_IO_ERROR,
+                           G_IO_ERROR_CANCELLED,
+                           "current screencast request cancelled");
+  g_object_unref (current_task);
+  dispatch_pending_sources ();
+
+  g_assert_cmpuint (fake_screencast_create_finish_calls, ==, 2);
+  g_assert_cmpuint (fake_screencast_start_calls, ==, 0);
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+}
+
 int
 main (int argc, char **argv)
 {
   g_test_init (&argc, &argv, NULL);
+  gst_init (&argc, &argv);
   if (!gtk_init_check ())
     {
       if (g_getenv ("KASASA_REQUIRE_DISPLAY") != NULL)
@@ -719,6 +915,9 @@ main (int argc, char **argv)
   g_test_add ("/gtk/content-container/content-limit-and-toolbar",
               Fixture, NULL, fixture_setup,
               test_content_limit_and_toolbar, fixture_teardown);
+  g_test_add ("/gtk/content-container/inactive-screencast-does-not-block",
+              Fixture, NULL, fixture_setup,
+              test_inactive_screencast_does_not_block, fixture_teardown);
   g_test_add ("/gtk/content-container/failed-append-preserves-carousel",
               Fixture, NULL, fixture_setup,
               test_failed_append_preserves_carousel, fixture_teardown);
@@ -753,6 +952,10 @@ main (int argc, char **argv)
   g_test_add ("/gtk/content-container/delayed-cancel-restores-state",
               Fixture, NULL, fixture_setup,
               test_delayed_screenshot_cancel_restores_state,
+              fixture_teardown);
+  g_test_add ("/gtk/content-container/screencast-timeout-late-retry",
+              Fixture, NULL, fixture_setup,
+              test_screencast_timeout_late_callback_and_retry,
               fixture_teardown);
 
   return g_test_run ();

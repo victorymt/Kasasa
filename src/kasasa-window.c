@@ -1540,11 +1540,11 @@ kasasa_window_apply_zoom_delta (KasasaWindow   *self,
            self->zoom_factor,
            input == KASASA_ZOOM_INPUT_SURFACE ? "surface" : "wheel");
 
-  if (input == KASASA_ZOOM_INPUT_SURFACE)
-    kasasa_window_schedule_zoom_apply (self);
-  else
-    kasasa_content_container_request_zoom_resize (self->content_container,
-                                                  FALSE);
+  /* Wheel notches can arrive in quick, opposite bursts while the pointer is
+   * crossing the pin. Feed both wheel and surface input into the persistent
+   * frame follower so those bursts retarget one resize instead of producing
+   * a sequence of abrupt 10% geometry jumps. */
+  kasasa_window_schedule_zoom_apply (self);
   kasasa_window_change_opacity (self, OPACITY_INCREASE);
   return TRUE;
 }

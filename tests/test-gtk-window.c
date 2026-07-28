@@ -21,6 +21,7 @@
 #include <adwaita.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <glib/gstdio.h>
+#include <gst/gst.h>
 #include <math.h>
 #include <unistd.h>
 
@@ -640,6 +641,8 @@ test_continuous_zoom_shrink (void)
   gint final_height;
   gint settled_height;
   gint settled_width;
+  gint burst_height;
+  gint burst_width;
   guint changes = 0;
   guint wheel_height_updates = 0;
   guint wheel_width_updates = 0;
@@ -701,19 +704,41 @@ test_continuous_zoom_shrink (void)
   gtk_window_get_default_size (GTK_WINDOW (window),
                                &immediate_width,
                                &immediate_height);
-  dispatch_sources_for (500);
+  dispatch_sources_for (1000);
   gtk_window_get_default_size (GTK_WINDOW (window),
                                &settled_width,
                                &settled_height);
   g_signal_handlers_disconnect_by_data (window, &wheel_width_updates);
   g_signal_handlers_disconnect_by_data (window, &wheel_height_updates);
 
-  g_assert_cmpint (immediate_width, <, initial_width);
-  g_assert_cmpint (immediate_height, <, initial_height);
-  g_assert_cmpint (settled_width, ==, immediate_width);
-  g_assert_cmpint (settled_height, ==, immediate_height);
-  g_assert_cmpuint (wheel_width_updates, <=, 1);
-  g_assert_cmpuint (wheel_height_updates, <=, 1);
+  /* A wheel notch must retarget the existing frame follower instead of
+   * snapping the toplevel to a new size in the scroll callback. */
+  g_assert_cmpint (immediate_width, ==, initial_width);
+  g_assert_cmpint (immediate_height, ==, initial_height);
+  /* The compositor may report a different output scale after the first map,
+   * so assert an eventual animated change rather than a fixed direction. */
+  g_assert_cmpint (settled_width, !=, immediate_width);
+  g_assert_cmpint (settled_height, !=, immediate_height);
+  g_assert_cmpuint (wheel_width_updates, >, 1);
+  g_assert_cmpuint (wheel_height_updates, >, 1);
+
+  /* Opposite wheel notches received before the next frame cancel at the zoom
+   * target and must not make the already settled window jump twice. */
+  g_assert_true (kasasa_window_apply_zoom_delta (
+    window, -1.0, KASASA_ZOOM_INPUT_WHEEL));
+  g_assert_true (kasasa_window_apply_zoom_delta (
+    window, 1.0, KASASA_ZOOM_INPUT_WHEEL));
+  gtk_window_get_default_size (GTK_WINDOW (window),
+                               &burst_width,
+                               &burst_height);
+  g_assert_cmpint (burst_width, ==, settled_width);
+  g_assert_cmpint (burst_height, ==, settled_height);
+  dispatch_sources_for (100);
+  gtk_window_get_default_size (GTK_WINDOW (window),
+                               &burst_width,
+                               &burst_height);
+  g_assert_cmpint (burst_width, ==, settled_width);
+  g_assert_cmpint (burst_height, ==, settled_height);
 
   previous_zoom = kasasa_window_get_zoom_factor (window);
   for (guint i = 0; i < 256; i++)
@@ -769,6 +794,7 @@ int
 main (int argc, char **argv)
 {
   g_test_init (&argc, &argv, NULL);
+  gst_init (&argc, &argv);
   if (!gtk_init_check ())
     {
       if (g_getenv ("KASASA_REQUIRE_DISPLAY") != NULL)

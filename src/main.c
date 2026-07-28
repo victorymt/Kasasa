@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include <glib/gi18n.h>
+#include <gst/gst.h>
 
 #include "kasasa-application.h"
 
@@ -35,6 +36,11 @@ main (int   argc,
   bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
   textdomain (GETTEXT_PACKAGE);
+
+  /* Initialize GStreamer outside GObject class initialization.  Calling it
+   * from KasasaScreencastClass::class_init reverses the GType/GStreamer lock
+   * order and can deadlock when the first screencast is constructed. */
+  gst_init (&argc, &argv);
 
   app = kasasa_application_new ("io.github.kelvinnovais.Kasasa");
   ret = g_application_run (G_APPLICATION (app), argc, argv);

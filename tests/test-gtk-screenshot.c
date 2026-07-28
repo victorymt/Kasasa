@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <glib/gstdio.h>
+#include <gst/gst.h>
 #include <unistd.h>
 
 #include "kasasa-content.h"
@@ -565,6 +566,7 @@ int
 main (int argc, char **argv)
 {
   g_test_init (&argc, &argv, NULL);
+  gst_init (&argc, &argv);
   if (!gtk_init_check ())
     {
       if (g_getenv ("KASASA_REQUIRE_DISPLAY") != NULL)
@@ -575,7 +577,6 @@ main (int argc, char **argv)
     }
 
   adw_init ();
-  gst_init (NULL, NULL);
 
   g_test_add_func ("/gtk/screenshot/layout", test_screenshot_layout);
   g_test_add_func ("/gtk/screencast/layout", test_screencast_layout);
