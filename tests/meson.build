@@ -4,7 +4,6 @@ adwaita_dep = dependency('libadwaita-1', version: '>= 1.7.4')
 portal_dep = dependency('libportal')
 portal_gtk_dep = dependency('libportal-gtk4')
 gstreamer_dep = dependency('gstreamer-1.0')
-gstreamer_video_dep = dependency('gstreamer-video-1.0')
 gstreamer_app_dep = dependency('gstreamer-app-1.0')
 json_glib_dep = dependency('json-glib-1.0')
 wayland_client_dep = dependency('wayland-client')
@@ -40,24 +39,6 @@ zoom_test = executable(
 test(
   'Zoom calculation',
   zoom_test,
-  env: ['G_DEBUG=fatal-warnings'],
-  suite: 'unit',
-  timeout: 30,
-)
-
-crop_test = executable(
-  'test-crop',
-  [
-    'test-crop.c',
-    '../src/kasasa-crop.c',
-  ],
-  include_directories: include_directories('../src'),
-  dependencies: glib_dep,
-)
-
-test(
-  'Crop calculation',
-  crop_test,
   env: ['G_DEBUG=fatal-warnings'],
   suite: 'unit',
   timeout: 30,
@@ -128,7 +109,7 @@ gtk_screenshot_test = executable(
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
-    '../src/kasasa-crop.c',
+    '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-stream.c',
@@ -140,7 +121,6 @@ gtk_screenshot_test = executable(
     adwaita_dep,
     portal_dep,
     gstreamer_dep,
-    gstreamer_video_dep,
     gstreamer_app_dep,
     json_glib_dep,
     wayland_client_dep,
@@ -230,7 +210,7 @@ gtk_content_container_test = executable(
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
-    '../src/kasasa-crop.c',
+    '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-stream.c',
@@ -244,7 +224,6 @@ gtk_content_container_test = executable(
     portal_dep,
     portal_gtk_dep,
     gstreamer_dep,
-    gstreamer_video_dep,
     gstreamer_app_dep,
     math_dep,
     json_glib_dep,
@@ -279,7 +258,7 @@ gtk_window_test = executable(
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
-    '../src/kasasa-crop.c',
+    '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-zoom.c',
     '../src/kasasa-window-query.c',
@@ -295,7 +274,6 @@ gtk_window_test = executable(
     portal_dep,
     portal_gtk_dep,
     gstreamer_dep,
-    gstreamer_video_dep,
     gstreamer_app_dep,
     math_dep,
     json_glib_dep,

@@ -41,16 +41,19 @@
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-window-query.h"
 
+#define FRAME_STAGE_TIMEOUT_USEC          (G_TIME_SPAN_SECOND)
+#define EVENT_POLL_INTERVAL_MSEC          100
+#define MAX_CONSECUTIVE_FRAME_FAILURES    3
+
 struct _KasasaHyprlandStream
 {
   GThread *thread;
-  GMutex lock;
-  gboolean stop_requested;
-  gboolean started;
+  gint stop_requested;
 
   guint32 handle;
 
   KasasaHyprlandStreamFrameFunc frame_cb;
+  KasasaHyprlandStreamErrorFunc error_cb;
   gpointer user_data;
   GDestroyNotify user_data_destroy;
 
@@ -70,12 +73,48 @@ struct _KasasaHyprlandStream
   uint32_t buffer_width;
   uint32_t buffer_height;
   uint32_t buffer_stride;
+  uint32_t allocated_buffer_format;
+  uint32_t allocated_buffer_width;
+  uint32_t allocated_buffer_height;
+  uint32_t allocated_buffer_stride;
   gboolean buffer_info_ready;
   gboolean buffer_done;
   gboolean frame_failed;
   gboolean frame_ready;
   uint32_t frame_flags;
 };
+
+static gboolean
+stream_stop_requested (KasasaHyprlandStream *self)
+{
+  return g_atomic_int_get (&self->stop_requested) != 0;
+}
+
+static gboolean
+set_stream_error_literal (GError      **error,
+                          const gchar  *message)
+{
+  g_set_error_literal (error,
+                       KASASA_WINDOW_QUERY_ERROR,
+                       KASASA_WINDOW_QUERY_ERROR_FAILED,
+                       message);
+  return FALSE;
+}
+
+static gboolean
+set_stream_errno_error (GError      **error,
+                        const gchar  *message)
+{
+  int saved_errno = errno;
+
+  g_set_error (error,
+               KASASA_WINDOW_QUERY_ERROR,
+               KASASA_WINDOW_QUERY_ERROR_FAILED,
+               "%s: %s",
+               message,
+               g_strerror (saved_errno));
+  return FALSE;
+}
 
 gboolean
 kasasa_hyprland_stream_handle_from_address (const gchar *address,
@@ -140,6 +179,10 @@ stream_clear_buffer (KasasaHyprlandStream *self)
       self->buffer_fd = -1;
     }
   self->buffer_size = 0;
+  self->allocated_buffer_format = 0;
+  self->allocated_buffer_width = 0;
+  self->allocated_buffer_height = 0;
+  self->allocated_buffer_stride = 0;
 }
 
 static void
@@ -150,7 +193,6 @@ stream_clear_frame (KasasaHyprlandStream *self)
       hyprland_toplevel_export_frame_v1_destroy (self->frame);
       self->frame = NULL;
     }
-  stream_clear_buffer (self);
   self->buffer_info_ready = FALSE;
   self->buffer_done = FALSE;
   self->frame_failed = FALSE;
@@ -193,7 +235,7 @@ create_shm_file (size_t size)
 }
 
 static gboolean
-create_shm_buffer (KasasaHyprlandStream *self)
+ensure_shm_buffer (KasasaHyprlandStream *self)
 {
   struct wl_shm_pool *pool;
   size_t size;
@@ -202,9 +244,22 @@ create_shm_buffer (KasasaHyprlandStream *self)
       || self->buffer_stride == 0)
     return FALSE;
 
-  size = (size_t) self->buffer_stride * (size_t) self->buffer_height;
-  if (size == 0)
+  if (self->buffer_width > G_MAXINT32
+      || self->buffer_height > G_MAXINT32
+      || self->buffer_stride > G_MAXINT32
+      || (size_t) self->buffer_height > G_MAXSIZE / self->buffer_stride)
     return FALSE;
+
+  size = (size_t) self->buffer_stride * (size_t) self->buffer_height;
+  if (size == 0 || size > G_MAXINT32)
+    return FALSE;
+
+  if (self->buffer != NULL
+      && self->allocated_buffer_format == self->buffer_format
+      && self->allocated_buffer_width == self->buffer_width
+      && self->allocated_buffer_height == self->buffer_height
+      && self->allocated_buffer_stride == self->buffer_stride)
+    return TRUE;
 
   stream_clear_buffer (self);
 
@@ -244,6 +299,11 @@ create_shm_buffer (KasasaHyprlandStream *self)
       stream_clear_buffer (self);
       return FALSE;
     }
+
+  self->allocated_buffer_format = self->buffer_format;
+  self->allocated_buffer_width = self->buffer_width;
+  self->allocated_buffer_height = self->buffer_height;
+  self->allocated_buffer_stride = self->buffer_stride;
 
   return TRUE;
 }
@@ -406,170 +466,271 @@ static const struct wl_registry_listener registry_listener = {
 };
 
 static gboolean
-dispatch_pending (KasasaHyprlandStream *self)
+dispatch_pending (KasasaHyprlandStream  *self,
+                  GError               **error)
 {
   if (wl_display_dispatch_pending (self->display) < 0)
-    return FALSE;
+    return set_stream_errno_error (error, _("Wayland event dispatch failed"));
   if (wl_display_flush (self->display) < 0 && errno != EAGAIN)
-    return FALSE;
+    return set_stream_errno_error (error, _("Wayland request flush failed"));
   return TRUE;
 }
 
 static gboolean
-wait_events (KasasaHyprlandStream *self)
+wait_events (KasasaHyprlandStream  *self,
+             gint64                 deadline,
+             const gchar           *timeout_message,
+             GError               **error)
 {
   struct pollfd pfd;
   int ret;
 
-  while (!self->stop_requested)
+  while (!stream_stop_requested (self))
     {
+      gint64 remaining;
+      gint timeout_msec;
+
       while (wl_display_prepare_read (self->display) != 0)
         {
           if (wl_display_dispatch_pending (self->display) < 0)
-            return FALSE;
+            return set_stream_errno_error (error,
+                                           _("Wayland event dispatch failed"));
         }
 
       if (wl_display_flush (self->display) < 0 && errno != EAGAIN)
         {
           wl_display_cancel_read (self->display);
-          return FALSE;
+          return set_stream_errno_error (error,
+                                         _("Wayland request flush failed"));
         }
 
+      remaining = deadline - g_get_monotonic_time ();
+      if (remaining <= 0)
+        {
+          wl_display_cancel_read (self->display);
+          return set_stream_error_literal (error, timeout_message);
+        }
+
+      timeout_msec = (gint) MIN ((remaining + 999) / 1000,
+                                 EVENT_POLL_INTERVAL_MSEC);
       pfd.fd = wl_display_get_fd (self->display);
       pfd.events = POLLIN;
       pfd.revents = 0;
-      ret = poll (&pfd, 1, 100);
+      ret = poll (&pfd, 1, timeout_msec);
       if (ret < 0)
         {
           wl_display_cancel_read (self->display);
           if (errno == EINTR)
             continue;
-          return FALSE;
+          return set_stream_errno_error (error,
+                                         _("Waiting for Wayland events failed"));
         }
       if (ret == 0)
         {
           wl_display_cancel_read (self->display);
-          return TRUE; /* timeout, caller re-checks flags */
+          if (g_get_monotonic_time () >= deadline)
+            return set_stream_error_literal (error, timeout_message);
+          return TRUE;
+        }
+      if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+        {
+          wl_display_cancel_read (self->display);
+          return set_stream_error_literal (error,
+                                           _("The Wayland connection was closed"));
         }
 
       if (wl_display_read_events (self->display) < 0)
-        return FALSE;
+        return set_stream_errno_error (error,
+                                       _("Reading Wayland events failed"));
       if (wl_display_dispatch_pending (self->display) < 0)
-        return FALSE;
+        return set_stream_errno_error (error,
+                                       _("Wayland event dispatch failed"));
       return TRUE;
     }
 
   return FALSE;
 }
 
+typedef struct
+{
+  gboolean done;
+} RoundtripState;
+
+static void
+roundtrip_done (void               *data,
+                struct wl_callback *callback,
+                uint32_t            callback_data)
+{
+  RoundtripState *state = data;
+
+  (void) callback;
+  (void) callback_data;
+  state->done = TRUE;
+}
+
+static const struct wl_callback_listener roundtrip_listener = {
+  .done = roundtrip_done,
+};
+
+static gboolean
+roundtrip_with_timeout (KasasaHyprlandStream  *self,
+                        GError               **error)
+{
+  struct wl_callback *callback;
+  RoundtripState state = { FALSE };
+  gint64 deadline = g_get_monotonic_time () + FRAME_STAGE_TIMEOUT_USEC;
+
+  callback = wl_display_sync (self->display);
+  if (callback == NULL)
+    return set_stream_error_literal (error,
+                                     _("Couldn't synchronize with Wayland"));
+
+  wl_callback_add_listener (callback, &roundtrip_listener, &state);
+  while (!stream_stop_requested (self) && !state.done)
+    {
+      if (!dispatch_pending (self, error)
+          || (!state.done
+              && !wait_events (self,
+                               deadline,
+                               _("Timed out waiting for the Wayland compositor"),
+                               error)))
+        {
+          wl_callback_destroy (callback);
+          return FALSE;
+        }
+    }
+
+  wl_callback_destroy (callback);
+  return state.done;
+}
+
 static void
 emit_frame (KasasaHyprlandStream *self)
 {
-  g_autofree guint8 *packed = NULL;
-  const guint8 *src = self->buffer_data;
   gint width = (gint) self->buffer_width;
   gint height = (gint) self->buffer_height;
   gint stride = (gint) self->buffer_stride;
   gboolean y_invert =
     (self->frame_flags & HYPRLAND_TOPLEVEL_EXPORT_FRAME_V1_FLAGS_Y_INVERT) != 0;
-  gboolean has_alpha = self->buffer_format == WL_SHM_FORMAT_ARGB8888
-                       || self->buffer_format == WL_SHM_FORMAT_ABGR8888;
-  gboolean swap_rb = self->buffer_format == WL_SHM_FORMAT_XBGR8888
-                     || self->buffer_format == WL_SHM_FORMAT_ABGR8888;
-  gint out_stride = width * 4;
-  gint y;
+  KasasaHyprlandStreamFormat format;
 
-  if (src == NULL || width <= 0 || height <= 0 || self->frame_cb == NULL)
+  if (self->buffer_data == NULL || width <= 0 || height <= 0
+      || stride <= 0 || self->frame_cb == NULL)
     return;
 
-  packed = g_malloc ((gsize) out_stride * (gsize) height);
-
-  for (y = 0; y < height; y++)
+  switch (self->buffer_format)
     {
-      gint src_y = y_invert ? (height - 1 - y) : y;
-      const guint8 *src_row = src + (gsize) src_y * (gsize) stride;
-      guint8 *dst_row = packed + (gsize) y * (gsize) out_stride;
-      gint x;
-
-      for (x = 0; x < width; x++)
-        {
-          const guint8 *p = src_row + x * 4;
-          guint8 *d = dst_row + x * 4;
-
-          if (swap_rb)
-            {
-              /* XBGR/ABGR in memory → BGRA/BGRx for GStreamer */
-              d[0] = p[0]; /* B */
-              d[1] = p[1]; /* G */
-              d[2] = p[2]; /* R */
-              d[3] = p[3];
-            }
-          else
-            {
-              /* XRGB/ARGB little-endian: bytes are B,G,R,X already */
-              d[0] = p[0];
-              d[1] = p[1];
-              d[2] = p[2];
-              d[3] = p[3];
-            }
-        }
+    case WL_SHM_FORMAT_XRGB8888:
+      format = KASASA_HYPRLAND_STREAM_FORMAT_BGRX;
+      break;
+    case WL_SHM_FORMAT_ARGB8888:
+      format = KASASA_HYPRLAND_STREAM_FORMAT_BGRA;
+      break;
+    case WL_SHM_FORMAT_XBGR8888:
+      format = KASASA_HYPRLAND_STREAM_FORMAT_RGBX;
+      break;
+    case WL_SHM_FORMAT_ABGR8888:
+      format = KASASA_HYPRLAND_STREAM_FORMAT_RGBA;
+      break;
+    default:
+      return;
     }
 
   self->frame_cb (self->user_data,
-                  packed,
+                  self->buffer_data,
                   width,
                   height,
-                  out_stride,
-                  has_alpha);
+                  stride,
+                  format,
+                  y_invert);
 }
 
 static gboolean
-capture_one_frame (KasasaHyprlandStream *self)
+capture_one_frame (KasasaHyprlandStream  *self,
+                   gboolean              *retryable,
+                   GError               **error)
 {
+  gint64 deadline;
+
+  if (retryable != NULL)
+    *retryable = FALSE;
+
   stream_clear_frame (self);
 
   self->frame = hyprland_toplevel_export_manager_v1_capture_toplevel (
     self->export_manager, 0, self->handle);
   if (self->frame == NULL)
-    return FALSE;
+    return set_stream_error_literal (error,
+                                     _("Couldn't request a window frame"));
 
   hyprland_toplevel_export_frame_v1_add_listener (self->frame,
                                                   &frame_listener,
                                                   self);
 
-  while (!self->stop_requested && !self->buffer_done && !self->frame_failed)
+  deadline = g_get_monotonic_time () + FRAME_STAGE_TIMEOUT_USEC;
+  while (!stream_stop_requested (self)
+         && !self->buffer_done
+         && !self->frame_failed)
     {
-      if (!dispatch_pending (self))
+      if (!dispatch_pending (self, error))
         return FALSE;
       if (self->buffer_done || self->frame_failed)
         break;
-      if (!wait_events (self))
+      if (!wait_events (self,
+                        deadline,
+                        _("Timed out waiting for a window frame"),
+                        error))
         return FALSE;
     }
 
-  if (self->stop_requested || self->frame_failed || !self->buffer_info_ready)
-    return !self->stop_requested ? FALSE : TRUE;
-
-  if (!create_shm_buffer (self))
+  if (stream_stop_requested (self))
     return FALSE;
+  if (self->frame_failed)
+    {
+      if (retryable != NULL)
+        *retryable = TRUE;
+      return set_stream_error_literal (error,
+                                       _("The selected window is no longer available"));
+    }
+  if (!self->buffer_info_ready)
+    return set_stream_error_literal (error,
+                                     _("The compositor provided no supported frame format"));
+
+  if (!ensure_shm_buffer (self))
+    return set_stream_error_literal (error,
+                                     _("Couldn't allocate a window frame buffer"));
 
   /* ignore_damage=1 so we get a continuous stream even without damage events. */
   hyprland_toplevel_export_frame_v1_copy (self->frame, self->buffer, 1);
 
-  while (!self->stop_requested && !self->frame_ready && !self->frame_failed)
+  deadline = g_get_monotonic_time () + FRAME_STAGE_TIMEOUT_USEC;
+  while (!stream_stop_requested (self)
+         && !self->frame_ready
+         && !self->frame_failed)
     {
-      if (!dispatch_pending (self))
+      if (!dispatch_pending (self, error))
         return FALSE;
       if (self->frame_ready || self->frame_failed)
         break;
-      if (!wait_events (self))
+      if (!wait_events (self,
+                        deadline,
+                        _("Timed out waiting for a window frame"),
+                        error))
         return FALSE;
     }
 
-  if (self->stop_requested)
-    return TRUE;
-  if (self->frame_failed || !self->frame_ready)
+  if (stream_stop_requested (self))
     return FALSE;
+  if (self->frame_failed)
+    {
+      if (retryable != NULL)
+        *retryable = TRUE;
+      return set_stream_error_literal (error,
+                                       _("The selected window is no longer available"));
+    }
+  if (!self->frame_ready)
+    return set_stream_error_literal (error,
+                                     _("The compositor did not complete the window frame"));
 
   emit_frame (self);
   stream_clear_frame (self);
@@ -580,44 +741,63 @@ static gpointer
 stream_thread_func (gpointer data)
 {
   KasasaHyprlandStream *self = data;
+  g_autoptr (GError) stream_error = NULL;
+  gboolean retryable;
+  guint consecutive_failures = 0;
 
   self->display = wl_display_connect (NULL);
   if (self->display == NULL)
     {
-      g_warning ("Failed to connect to Wayland display for Hyprland stream");
-      return NULL;
-    }
-
-  self->registry = wl_display_get_registry (self->display);
-  wl_registry_add_listener (self->registry, &registry_listener, self);
-  wl_display_roundtrip (self->display);
-
-  if (self->shm == NULL || self->export_manager == NULL)
-    {
-      g_warning ("Hyprland toplevel export protocol is unavailable");
+      set_stream_errno_error (&stream_error,
+                              _("Failed to connect to the Wayland display"));
       goto out;
     }
 
-  while (TRUE)
+  self->registry = wl_display_get_registry (self->display);
+  if (self->registry == NULL)
     {
-      g_mutex_lock (&self->lock);
-      if (self->stop_requested)
-        {
-          g_mutex_unlock (&self->lock);
-          break;
-        }
-      g_mutex_unlock (&self->lock);
+      set_stream_error_literal (&stream_error,
+                                _("Couldn't access the Wayland registry"));
+      goto out;
+    }
+  wl_registry_add_listener (self->registry, &registry_listener, self);
+  if (!roundtrip_with_timeout (self, &stream_error))
+    goto out;
 
-      if (!capture_one_frame (self))
+  if (self->shm == NULL || self->export_manager == NULL)
+    {
+      set_stream_error_literal (&stream_error,
+                                _("Hyprland's window capture protocol is unavailable"));
+      goto out;
+    }
+
+  if (!capture_one_frame (self, NULL, &stream_error))
+    goto out;
+
+  while (!stream_stop_requested (self))
+    {
+      g_clear_error (&stream_error);
+      if (!capture_one_frame (self, &retryable, &stream_error))
         {
-          if (!self->stop_requested)
-            {
-              g_debug ("Hyprland frame capture failed; retrying");
-              g_usleep (50 * 1000);
-            }
+          if (stream_stop_requested (self))
+            break;
+
+          if (!retryable)
+            break;
+
+          consecutive_failures++;
+          if (consecutive_failures >= MAX_CONSECUTIVE_FRAME_FAILURES)
+            break;
+
+          g_debug ("Hyprland frame capture failed (%u/%u): %s",
+                   consecutive_failures,
+                   MAX_CONSECUTIVE_FRAME_FAILURES,
+                   stream_error != NULL ? stream_error->message : "unknown error");
+          g_usleep (50 * 1000);
         }
       else
         {
+          consecutive_failures = 0;
           /* Cap roughly to 30 FPS when ignore_damage forces full frames. */
           g_usleep (33 * 1000);
         }
@@ -625,6 +805,7 @@ stream_thread_func (gpointer data)
 
 out:
   stream_clear_frame (self);
+  stream_clear_buffer (self);
   if (self->export_manager != NULL)
     {
       hyprland_toplevel_export_manager_v1_destroy (self->export_manager);
@@ -646,19 +827,30 @@ out:
       self->display = NULL;
     }
 
+  if (!stream_stop_requested (self) && self->error_cb != NULL)
+    {
+      if (stream_error == NULL)
+        set_stream_error_literal (&stream_error,
+                                  _("Couldn't start Hyprland window capture"));
+      self->error_cb (self->user_data, stream_error);
+    }
+
   return NULL;
 }
 
 KasasaHyprlandStream *
 kasasa_hyprland_stream_start (guint32                       handle,
                               KasasaHyprlandStreamFrameFunc  frame_cb,
+                              KasasaHyprlandStreamErrorFunc  error_cb,
                               gpointer                      user_data,
                               GDestroyNotify                user_data_destroy,
                               GError                      **error)
 {
   KasasaHyprlandStream *self;
+  g_autoptr (GError) thread_error = NULL;
 
   g_return_val_if_fail (frame_cb != NULL, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
   if (!kasasa_hyprland_stream_available ())
     {
@@ -670,26 +862,28 @@ kasasa_hyprland_stream_start (guint32                       handle,
     }
 
   self = g_new0 (KasasaHyprlandStream, 1);
-  g_mutex_init (&self->lock);
   self->handle = handle;
   self->frame_cb = frame_cb;
+  self->error_cb = error_cb;
   self->user_data = user_data;
   self->user_data_destroy = user_data_destroy;
   self->buffer_fd = -1;
 
-  self->thread = g_thread_new ("kasasa-hypr-stream", stream_thread_func, self);
+  self->thread = g_thread_try_new ("kasasa-hypr-stream",
+                                   stream_thread_func,
+                                   self,
+                                   &thread_error);
   if (self->thread == NULL)
     {
-      g_set_error_literal (error,
-                           KASASA_WINDOW_QUERY_ERROR,
-                           KASASA_WINDOW_QUERY_ERROR_FAILED,
-                           _("Failed to start Hyprland capture thread"));
-      g_mutex_clear (&self->lock);
-      g_free (self);
+      g_set_error (error,
+                   KASASA_WINDOW_QUERY_ERROR,
+                   KASASA_WINDOW_QUERY_ERROR_FAILED,
+                   _("Failed to start Hyprland capture thread: %s"),
+                   thread_error != NULL ? thread_error->message : _("unknown error"));
+      kasasa_hyprland_stream_stop (self);
       return NULL;
     }
 
-  self->started = TRUE;
   return self;
 }
 
@@ -699,9 +893,7 @@ kasasa_hyprland_stream_stop (KasasaHyprlandStream *self)
   if (self == NULL)
     return;
 
-  g_mutex_lock (&self->lock);
-  self->stop_requested = TRUE;
-  g_mutex_unlock (&self->lock);
+  g_atomic_int_set (&self->stop_requested, TRUE);
 
   if (self->thread != NULL)
     {
@@ -712,6 +904,5 @@ kasasa_hyprland_stream_stop (KasasaHyprlandStream *self)
   if (self->user_data_destroy != NULL && self->user_data != NULL)
     self->user_data_destroy (self->user_data);
 
-  g_mutex_clear (&self->lock);
   g_free (self);
 }

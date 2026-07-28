@@ -336,15 +336,32 @@ run_hyprctl (const gchar *const *argv,
   return g_steal_pointer (&stdout_buf);
 }
 
+static void
+wrap_hyprctl_error (GError **error)
+{
+  g_autoptr (GError) wrapped = NULL;
+
+  if (error == NULL || *error == NULL
+      || (*error)->domain == KASASA_WINDOW_QUERY_ERROR)
+    return;
+
+  wrapped = g_error_new (KASASA_WINDOW_QUERY_ERROR,
+                         KASASA_WINDOW_QUERY_ERROR_FAILED,
+                         "%s", (*error)->message);
+  g_clear_error (error);
+  g_propagate_error (error, g_steal_pointer (&wrapped));
+}
+
 gboolean
 kasasa_window_query_backend_available (void)
 {
-  g_autoptr (GError) error = NULL;
-  g_autofree gchar *out = NULL;
-  const gchar *argv[] = { "hyprctl", "version", NULL };
+  g_autofree gchar *hyprctl = NULL;
+  const gchar *instance_signature = g_getenv ("HYPRLAND_INSTANCE_SIGNATURE");
 
-  out = run_hyprctl (argv, &error);
-  return out != NULL;
+  hyprctl = g_find_program_in_path ("hyprctl");
+  return hyprctl != NULL
+         && instance_signature != NULL
+         && *instance_signature != '\0';
 }
 
 GPtrArray *
@@ -365,17 +382,7 @@ kasasa_window_query_list_clients (GError **error)
   json = run_hyprctl (argv, error);
   if (json == NULL)
     {
-      if (error != NULL && *error != NULL
-          && !g_error_matches (*error, KASASA_WINDOW_QUERY_ERROR,
-                               KASASA_WINDOW_QUERY_ERROR_UNAVAILABLE))
-        {
-          g_autoptr (GError) wrapped = NULL;
-          wrapped = g_error_new (KASASA_WINDOW_QUERY_ERROR,
-                                 KASASA_WINDOW_QUERY_ERROR_FAILED,
-                                 "%s", (*error)->message);
-          g_clear_error (error);
-          g_propagate_error (error, g_steal_pointer (&wrapped));
-        }
+      wrap_hyprctl_error (error);
       return NULL;
     }
 
@@ -388,9 +395,21 @@ kasasa_window_query_get_active (GError **error)
   g_autofree gchar *json = NULL;
   const gchar *argv[] = { "hyprctl", "-j", "activewindow", NULL };
 
+  if (!kasasa_window_query_backend_available ())
+    {
+      g_set_error_literal (error,
+                           KASASA_WINDOW_QUERY_ERROR,
+                           KASASA_WINDOW_QUERY_ERROR_UNAVAILABLE,
+                           _("Hyprland active window selection requires hyprctl"));
+      return NULL;
+    }
+
   json = run_hyprctl (argv, error);
   if (json == NULL)
-    return NULL;
+    {
+      wrap_hyprctl_error (error);
+      return NULL;
+    }
 
   return kasasa_window_query_parse_active_json (json, error);
 }
@@ -554,15 +573,24 @@ kasasa_window_query_resolve_live (const gchar *spec_text,
   if (!kasasa_window_spec_parse (spec_text, &spec, error))
     return NULL;
 
+  if (spec.kind == KASASA_WINDOW_SPEC_ACTIVE)
+    {
+      active = kasasa_window_query_get_active (error);
+      if (active == NULL && (error == NULL || *error == NULL))
+        g_set_error_literal (error,
+                             KASASA_WINDOW_QUERY_ERROR,
+                             KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
+                             _("No active window"));
+      kasasa_window_spec_clear (&spec);
+      return g_steal_pointer (&active);
+    }
+
   clients = kasasa_window_query_list_clients (error);
   if (clients == NULL)
     {
       kasasa_window_spec_clear (&spec);
       return NULL;
     }
-
-  if (spec.kind == KASASA_WINDOW_SPEC_ACTIVE)
-    active = kasasa_window_query_get_active (NULL);
 
   resolved = kasasa_window_query_resolve (&spec, clients, active,
                                           &candidates, error);

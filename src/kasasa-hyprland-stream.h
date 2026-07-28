@@ -26,17 +26,31 @@ G_BEGIN_DECLS
 
 typedef struct _KasasaHyprlandStream KasasaHyprlandStream;
 
+typedef enum
+{
+  KASASA_HYPRLAND_STREAM_FORMAT_BGRX,
+  KASASA_HYPRLAND_STREAM_FORMAT_BGRA,
+  KASASA_HYPRLAND_STREAM_FORMAT_RGBX,
+  KASASA_HYPRLAND_STREAM_FORMAT_RGBA,
+} KasasaHyprlandStreamFormat;
+
 /*
- * Called from the stream's worker thread with a tightly packed BGRA/BGRx frame
- * (4 bytes per pixel, stride == width * 4). The callback must copy the pixels
- * if it needs them after returning.
+ * Called from the stream's worker thread with the Wayland SHM frame. The
+ * callback must copy the pixels if it needs them after returning.
  */
-typedef void (*KasasaHyprlandStreamFrameFunc) (gpointer     user_data,
-                                               const guint8 *data,
-                                               gint          width,
-                                               gint          height,
-                                               gint          stride,
-                                               gboolean      has_alpha);
+typedef void (*KasasaHyprlandStreamFrameFunc) (
+  gpointer                     user_data,
+  const guint8                *data,
+  gint                         width,
+  gint                         height,
+  gint                         stride,
+  KasasaHyprlandStreamFormat   format,
+  gboolean                     y_invert);
+
+/* Called from the worker thread if startup fails or an active stream ends. */
+typedef void (*KasasaHyprlandStreamErrorFunc) (
+  gpointer                     user_data,
+  const GError                *error);
 
 /* Parse hyprctl address ("0x…") to the uint32 handle used by toplevel-export. */
 gboolean kasasa_hyprland_stream_handle_from_address (const gchar *address,
@@ -47,10 +61,13 @@ gboolean kasasa_hyprland_stream_available (void);
 
 /*
  * Start continuous capture of the window identified by handle.
- * frame_cb is invoked from a background thread.
+ * The function returns after the worker thread is created. Wayland connection
+ * and first-frame failures are reported through error_cb. frame_cb and
+ * error_cb are invoked from the worker thread.
  */
 KasasaHyprlandStream *kasasa_hyprland_stream_start (guint32                       handle,
                                                     KasasaHyprlandStreamFrameFunc  frame_cb,
+                                                    KasasaHyprlandStreamErrorFunc  error_cb,
                                                     gpointer                      user_data,
                                                     GDestroyNotify                user_data_destroy,
                                                     GError                      **error);
