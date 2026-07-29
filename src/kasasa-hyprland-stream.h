@@ -45,7 +45,8 @@ typedef void (*KasasaHyprlandStreamFrameFunc) (
   gint                         height,
   gint                         stride,
   KasasaHyprlandStreamFormat   format,
-  gboolean                     y_invert);
+  gboolean                     y_invert,
+  guint32                      transform);
 
 /* Called from the worker thread if startup fails or an active stream ends. */
 typedef void (*KasasaHyprlandStreamErrorFunc) (
@@ -71,6 +72,15 @@ KasasaHyprlandStream *kasasa_hyprland_stream_start (guint32                     
                                                     gpointer                      user_data,
                                                     GDestroyNotify                user_data_destroy,
                                                     GError                      **error);
+
+/* Start native capture of the wl_output whose compositor name matches NAME. */
+KasasaHyprlandStream *kasasa_hyprland_stream_start_output (
+  const gchar                   *name,
+  KasasaHyprlandStreamFrameFunc  frame_cb,
+  KasasaHyprlandStreamErrorFunc  error_cb,
+  gpointer                      user_data,
+  GDestroyNotify                user_data_destroy,
+  GError                      **error);
 
 void kasasa_hyprland_stream_stop (KasasaHyprlandStream *stream);
 

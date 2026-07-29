@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kasasa\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-06 10:17-0300\n"
+"POT-Creation-Date: 2026-07-29 11:42+0800\n"
 "PO-Revision-Date: 2026-01-06 08:29-0300\n"
 "Last-Translator: Kelvin Ribeiro Novais <>\n"
 "Language-Team: \n"
@@ -21,7 +21,7 @@ msgstr ""
 
 #: data/io.github.kelvinnovais.Kasasa.desktop.in:2
 #: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:5
-#: src/kasasa-application.c:104 src/kasasa-window.ui:16
+#: src/kasasa-application.c:517 src/kasasa-window.ui:16
 msgid "Kasasa"
 msgstr "Kasasa"
 
@@ -31,8 +31,14 @@ msgid "Snip and pin useful information"
 msgstr "Recortar y fijar información útil"
 
 #: data/io.github.kelvinnovais.Kasasa.desktop.in:9
-msgid "screenshot;clipping;snip;image;pin;reference;"
+#, fuzzy
+msgid "screenshot;clipping;snip;image;pin;reference;screencast;"
 msgstr "captura de pantalla;recorte;imagen;alfiler;referencia;"
+
+#: data/io.github.kelvinnovais.Kasasa.desktop.in:15
+#, fuzzy
+msgid "Pin a screencast"
+msgstr "Sin screencast"
 
 #: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:26
 msgid ""
@@ -62,12 +68,10 @@ msgstr "Un atajo de teclado"
 #: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:37
 msgid ""
 "On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom "
-"Shortcuts. There you can set a shortcut to run <code>flatpak run "
-"io.github.kelvinnovais.Kasasa</code> "
+"Shortcuts. There you can set a shortcut to run <code>kasasa</code> "
 msgstr ""
 "En GNOME, vaya a Configuración → Teclado → Ver y personalizar atajos → Atajo "
-"personalizado. Allí puedes configurar un acceso directo para ejecutar "
-"flatpak run io.github.kelvinnovais.Kasasa"
+"personalizado. Allí puedes configurar un acceso directo para ejecutar kasasa"
 
 #. translators: replace "&lt;" with < and "&apos;" with '
 #: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:42
@@ -94,6 +98,15 @@ msgstr "Kasasa puede convertirse en una miniatura de ventana."
 msgid "Or decrease its opacity"
 msgstr "O disminuir su opacidad"
 
+#: data/io.github.kelvinnovais.Kasasa.gschema.xml:12
+#: src/kasasa-preferences.ui:15
+msgid "Language"
+msgstr ""
+
+#: data/io.github.kelvinnovais.Kasasa.gschema.xml:13
+msgid "Language used by Kasasa after the next restart"
+msgstr ""
+
 #: src/gtk/help-overlay.ui:11
 msgctxt "shortcut window"
 msgid "General"
@@ -109,7 +122,60 @@ msgctxt "shortcut window"
 msgid "Quit"
 msgstr "Cerrar"
 
-#: src/kasasa-application.c:108
+#: src/kasasa-application.c:94
+#, fuzzy
+msgid "Failed to list windows"
+msgstr "Cerrar ventana automáticamente"
+
+#: src/kasasa-application.c:119
+msgid "Failed to list monitors"
+msgstr ""
+
+#: src/kasasa-application.c:142
+msgid "--list-windows and --list-monitors are mutually exclusive"
+msgstr ""
+
+#: src/kasasa-application.c:145
+msgid "--json requires --list-windows or --list-monitors"
+msgstr ""
+
+#: src/kasasa-application.c:148
+msgid "--window and --monitor are mutually exclusive"
+msgstr ""
+
+#: src/kasasa-application.c:151
+msgid "--monitor requires --screencast"
+msgstr ""
+
+#: src/kasasa-application.c:155
+msgid "Listing options cannot be combined with a capture target"
+msgstr ""
+
+#: src/kasasa-application.c:197
+msgid "Failed to resolve window"
+msgstr ""
+
+#: src/kasasa-application.c:208
+msgid "Targeted live screencast requires Hyprland Wayland"
+msgstr ""
+
+#: src/kasasa-application.c:217
+msgid "Invalid window address"
+msgstr ""
+
+#: src/kasasa-application.c:239
+msgid "Failed to capture window"
+msgstr ""
+
+#: src/kasasa-application.c:264
+msgid "Failed to resolve monitor"
+msgstr ""
+
+#: src/kasasa-application.c:271
+msgid "Targeted monitor screencast requires Hyprland Wayland"
+msgstr ""
+
+#: src/kasasa-application.c:521
 msgid ""
 "Snip and pin useful information\n"
 "\n"
@@ -120,163 +186,627 @@ msgstr ""
 "Si te gustó la aplicación ❤️, considera darle una estrella ⭐:"
 
 #. Translators: Replace "translator-credits" with your names, one name per line
-#: src/kasasa-application.c:116
+#: src/kasasa-application.c:529
 msgid "translator-credits"
 msgstr "Kelvin Ribeiro Novais"
 
-#: src/kasasa-window.c:971
+#: src/kasasa-application.c:589
+msgid "Start by pinning a screencast instead of a screenshot"
+msgstr ""
+
+#: src/kasasa-application.c:598
+msgid "List capturable windows (Hyprland) and exit"
+msgstr ""
+
+#: src/kasasa-application.c:607
+msgid "With a listing option, print JSON"
+msgstr ""
+
+#: src/kasasa-application.c:616
+msgid "Capture a window: class, title:…, address:…, or active"
+msgstr ""
+
+#: src/kasasa-application.c:617
+msgid "SPEC"
+msgstr ""
+
+#: src/kasasa-application.c:625
+msgid "List capturable monitors (Hyprland) and exit"
+msgstr ""
+
+#: src/kasasa-application.c:634
+msgid "Capture a monitor live: output name or active"
+msgstr ""
+
+#: src/kasasa-application.c:635
+msgid "NAME"
+msgstr ""
+
+#: src/kasasa-application.c:649
+msgid "Pin screenshots and screencasts above other windows"
+msgstr ""
+
+#: src/kasasa-application.c:652
+msgid ""
+"Capture modes:\n"
+"  kasasa                              Take a screenshot through the Portal\n"
+"  kasasa --screencast                 Start a screencast through the Portal\n"
+"  kasasa --window=active              Capture the active Hyprland window\n"
+"  kasasa --screencast --monitor=active\n"
+"                                      Capture the active Hyprland monitor "
+"live\n"
+"\n"
+"Use --list-windows or --list-monitors to inspect Hyprland capture targets.\n"
+"Native monitor capture requires --monitor together with --screencast."
+msgstr ""
+
+#: src/kasasa-window.c:1661
 msgid "Unblock miniaturization"
 msgstr "Desbloquear la miniaturización"
 
-#: src/kasasa-window.c:977
+#: src/kasasa-window.c:1667 src/kasasa-window.ui:83
 msgid "Block miniaturization"
 msgstr "Bloquear la miniaturización"
 
-#: src/kasasa-window.ui:61
+#: src/kasasa-window.ui:66
 msgid "Trigger auto discard timer"
 msgstr "Activar temporizador de descarte automático"
 
-#: src/kasasa-window.ui:70
+#: src/kasasa-window.ui:75
 msgid "Auto delete image when closing window"
 msgstr "Eliminar imagen automáticamente al cerrar la ventana"
 
-#: src/kasasa-window.ui:88
+#: src/kasasa-window.ui:94
 msgid "Menu"
 msgstr "Menú"
 
-#: src/kasasa-window.ui:165
+#: src/kasasa-window.ui:176
 msgid "_Preferences"
 msgstr "_Preferencias"
 
-#: src/kasasa-window.ui:169
+#: src/kasasa-window.ui:180
 msgid "_About Kasasa"
 msgstr "_Acerca de Kasasa"
 
-#: src/kasasa-content-container.c:220 src/kasasa-content-container.c:818
+#: src/kasasa-content-container.c:154
+msgid "A screencast is already active"
+msgstr ""
+
+#: src/kasasa-content-container.c:163
+#, fuzzy
+msgid "Couldn't find the active monitor"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-content-container.c:168 src/kasasa-content-container.c:1704
+#, fuzzy
+msgid "Couldn't display the monitor"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-content-container.c:179 src/kasasa-content-container.c:583
+#: src/kasasa-content-container.c:613 src/kasasa-content-container.c:627
+#: src/kasasa-content-container.c:640 src/kasasa-content-container.c:2025
 #, c-format
 msgid "Error: %s"
 msgstr "Error: %s"
 
-#: src/kasasa-content-container.c:222 src/kasasa-content-container.c:234
-#: src/kasasa-content-container.c:820
+#: src/kasasa-content-container.c:181 src/kasasa-content-container.c:585
+#: src/kasasa-content-container.c:597 src/kasasa-content-container.c:2027
 msgid "Copy"
 msgstr "Copiar"
 
-#: src/kasasa-content-container.c:231 src/kasasa-content-container.c:367
+#: src/kasasa-content-container.c:193
+msgid "GPU screencast unavailable. Switched to CPU."
+msgstr ""
+
+#: src/kasasa-content-container.c:217
+#, fuzzy
+msgid "Screenshot scheduled"
+msgstr "Error en la captura de pantalla"
+
+#: src/kasasa-content-container.c:218
+#, fuzzy, c-format
+msgid "Screenshot in %u second"
+msgid_plural "Screenshot in %u seconds"
+msgstr[0] "Retraso de captura de pantalla (en segundos)"
+msgstr[1] "Retraso de captura de pantalla (en segundos)"
+
+#: src/kasasa-content-container.c:224 src/kasasa-content-container.c:1508
+msgid "Cancel"
+msgstr ""
+
+#: src/kasasa-content-container.c:594 src/kasasa-content-container.c:626
+#: src/kasasa-content-container.c:831 src/kasasa-content-container.c:1587
 msgid "Couldn't load the screenshot"
 msgstr "No se pudo cargar la captura de pantalla"
 
+#: src/kasasa-content-container.c:612
+#, fuzzy
+msgid "Current content is not a screenshot"
+msgstr "No se pudo cargar la captura de pantalla"
+
 #. translators: reason which the screenshot failed
-#: src/kasasa-content-container.c:367
+#. translators: reason which the screencast failed
+#: src/kasasa-content-container.c:824 src/kasasa-content-container.c:831
+#: src/kasasa-content-container.c:842 src/kasasa-content-container.c:1087
+#: src/kasasa-content-container.c:1586 src/kasasa-content-container.c:1597
+#: src/kasasa-content-container.c:1760
 msgid "Reason: "
 msgstr "Razón: "
 
-#: src/kasasa-content-container.c:384
+#: src/kasasa-content-container.c:861 src/kasasa-content-container.c:1613
 msgid "Screenshot failed"
 msgstr "Error en la captura de pantalla"
 
-#: src/kasasa-content-container.c:832
+#: src/kasasa-content-container.c:1092 src/kasasa-content-container.c:1699
+#: src/kasasa-content-container.c:1786
+#, fuzzy
+msgid "Screencast failed"
+msgstr "Error en la captura de pantalla"
+
+#: src/kasasa-content-container.c:1175
+msgid "The screencast service did not respond"
+msgstr ""
+
+#: src/kasasa-content-container.c:1258 src/kasasa-content-container.c:1264
+#, fuzzy
+msgid "Couldn't start the screencast"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-content-container.c:1280 src/kasasa-content-container.c:1286
+msgid "The screencast did not provide a video stream"
+msgstr ""
+
+#: src/kasasa-content-container.c:1302 src/kasasa-content-container.c:1308
+msgid "The screencast provided invalid stream information"
+msgstr ""
+
+#: src/kasasa-content-container.c:1332 src/kasasa-content-container.c:1338
+#, fuzzy
+msgid "Couldn't connect to the screencast service"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-content-container.c:1374 src/kasasa-content-container.c:1380
+#: src/kasasa-content-container.c:1763
+#, fuzzy
+msgid "Couldn't display the screencast"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-content-container.c:1450 src/kasasa-content-container.c:1456
+#, fuzzy
+msgid "Couldn't create the screencast"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-content-container.c:1504
+msgid "Waiting for screen selection…"
+msgstr ""
+
+#: src/kasasa-content-container.c:1544
+msgid "Finish the current screencast before starting another one."
+msgstr ""
+
+#: src/kasasa-content-container.c:2039
 msgid "Copied to the clipboard"
 msgstr "Copiado al portapapeles"
 
-#: src/kasasa-content-container.ui:104
+#: src/kasasa-content-container.ui:114
 msgid "Add screenshot"
 msgstr "Agregar captura de pantalla"
 
-#: src/kasasa-content-container.ui:111
+#: src/kasasa-content-container.ui:121
 msgid "More actions"
 msgstr "Más acciones"
 
-#: src/kasasa-content-container.ui:138
+#: src/kasasa-content-container.ui:148
 msgid "Delayed screenshot"
 msgstr "Captura de pantalla con retraso"
 
-#: src/kasasa-content-container.ui:165
+#: src/kasasa-content-container.ui:175 src/kasasa-preferences.ui:160
 msgid "Screencast"
 msgstr "Screencast"
 
-#: src/kasasa-content-container.ui:185
+#: src/kasasa-content-container.ui:202
+msgid "Active monitor (Hyprland)"
+msgstr ""
+
+#: src/kasasa-content-container.ui:222
 msgid "Remove this item"
 msgstr "Eliminar este artículo"
 
-#: src/kasasa-content-container.ui:211
+#: src/kasasa-content-container.ui:249
+#, fuzzy
+msgid "Stop screencast"
+msgstr "Sin screencast"
+
+#: src/kasasa-content-container.ui:257
 msgid "Retake screenshot"
 msgstr "Volver a tomar captura de pantalla"
 
-#: src/kasasa-content-container.ui:219
+#: src/kasasa-content-container.ui:265
 msgid "Copy screenshot"
 msgstr "Copiar captura de pantalla"
 
-#: src/kasasa-screencast.c:157
+#: src/kasasa-hyprland-capture.c:62
+msgid "Hyprland capture requires hyprctl and grim"
+msgstr ""
+
+#: src/kasasa-hyprland-capture.c:71
+msgid "Window has an invalid size"
+msgstr ""
+
+#: src/kasasa-hyprland-capture.c:114
+msgid "grim did not produce a screenshot file"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:175
+msgid "Window address is empty"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:186
+#, c-format
+msgid "Invalid window address “%s”"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:839 src/kasasa-hyprland-stream.c:863
+#: src/kasasa-hyprland-stream.c:913
+msgid "Wayland event dispatch failed"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:841 src/kasasa-hyprland-stream.c:870
+msgid "Wayland request flush failed"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:892
+msgid "Waiting for Wayland events failed"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:905
+msgid "The Wayland connection was closed"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:910
+msgid "Reading Wayland events failed"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:952
+msgid "Couldn't synchronize with Wayland"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:961
+msgid "Timed out waiting for the Wayland compositor"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1031
+msgid "Couldn't request a window frame"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1048 src/kasasa-hyprland-stream.c:1084
+msgid "Timed out waiting for a window frame"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1060 src/kasasa-hyprland-stream.c:1096
+msgid "The selected window is no longer available"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1064
+msgid "The compositor provided no supported frame format"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1068
+msgid "Couldn't allocate a window frame buffer"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1100
+msgid "The compositor did not complete the window frame"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1134
+#, c-format
+msgid "Wayland output “%s” is unavailable"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1145
+#, fuzzy
+msgid "Couldn't create an output capture source"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-hyprland-stream.c:1153
+#, fuzzy
+msgid "Couldn't create an output capture session"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-hyprland-stream.c:1163 src/kasasa-hyprland-stream.c:1196
+#: src/kasasa-hyprland-stream.c:1217 src/kasasa-hyprland-stream.c:1274
+msgid "The selected monitor is no longer available"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1166
+msgid "The compositor provided no supported monitor frame format"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1187
+msgid "Timed out waiting for monitor capture constraints"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1199 src/kasasa-hyprland-stream.c:1223
+msgid "Monitor capture buffer constraints are unavailable"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1226
+#, fuzzy
+msgid "Couldn't allocate a monitor frame buffer"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-hyprland-stream.c:1232
+#, fuzzy
+msgid "Couldn't request a monitor frame"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-hyprland-stream.c:1263
+msgid "Timed out waiting for a monitor frame"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1282
+msgid "Monitor capture constraints changed"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1284
+msgid "The compositor failed to capture the monitor"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1288
+msgid "The compositor did not complete the monitor frame"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1319
+msgid "Failed to connect to the Wayland display"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1327
+#, fuzzy
+msgid "Couldn't access the Wayland registry"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-hyprland-stream.c:1339
+msgid "Hyprland's window capture protocol is unavailable"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1349
+msgid "Hyprland's monitor capture protocol is unavailable"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1443 src/kasasa-screencast.c:1037
+msgid "Couldn't start Hyprland monitor capture"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1444 src/kasasa-screencast.c:1038
+msgid "Couldn't start Hyprland window capture"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1472
+msgid "Hyprland live capture requires Wayland and hyprctl"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1497
+#, c-format
+msgid "Failed to start Hyprland capture thread: %s"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:1498
+msgid "unknown error"
+msgstr ""
+
+#: src/kasasa-screencast.c:288 src/kasasa-screencast.c:416
+#: src/kasasa-screencast.c:583
 msgid "Screencast ended with error"
 msgstr "La screencast terminó con un error"
 
-#: src/kasasa-screencast.c:562
+#: src/kasasa-screencast.c:448
+msgid "The window capture stopped unexpectedly"
+msgstr ""
+
+#: src/kasasa-screencast.c:533 src/kasasa-screencast.c:999
+msgid "The screencast pipeline has no message bus"
+msgstr ""
+
+#: src/kasasa-screencast.c:563 src/kasasa-screencast.c:689
+#: src/kasasa-screencast.c:1010
+msgid "The screencast pipeline could not be started"
+msgstr ""
+
+#: src/kasasa-screencast.c:651
+msgid "Invalid screencast connection"
+msgstr ""
+
+#: src/kasasa-screencast.c:924
+msgid "Screencast is already active"
+msgstr ""
+
+#: src/kasasa-screencast.c:990
+msgid "The screencast pipeline could not be linked"
+msgstr ""
+
+#: src/kasasa-screencast.c:1053
+msgid "Required GStreamer plugins are unavailable"
+msgstr ""
+
+#: src/kasasa-screencast.c:1209
 msgid "No screencast"
 msgstr "Sin screencast"
 
+#: src/kasasa-screenshot.c:63
+#, fuzzy
+msgid "Couldn't move screenshot to Trash"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-screenshot.c:107
+#, fuzzy
+msgid "No screenshot file is available"
+msgstr "Error en la captura de pantalla"
+
 #: src/kasasa-preferences.ui:12
+#, fuzzy
+msgid "General"
+msgstr "General"
+
+#: src/kasasa-preferences.ui:16
+msgid "Changes take effect after restarting Kasasa"
+msgstr ""
+
+#: src/kasasa-preferences.ui:20
+msgid "System default"
+msgstr ""
+
+#: src/kasasa-preferences.ui:34
 msgid "Window hide mode"
 msgstr "Modo ocultar ventana"
 
-#: src/kasasa-preferences.ui:17
+#: src/kasasa-preferences.ui:39
 msgid "Decrease opacity"
 msgstr "Disminuir la opacidad"
 
-#: src/kasasa-preferences.ui:29
+#: src/kasasa-preferences.ui:51
 msgid "Opacity level"
 msgstr "Nivel de opacidad"
 
-#: src/kasasa-preferences.ui:36
+#: src/kasasa-preferences.ui:58
 msgid "Miniaturize"
 msgstr "Miniaturizar"
 
-#: src/kasasa-preferences.ui:47
+#: src/kasasa-preferences.ui:69
 msgid "Auto hide the header bar"
 msgstr "Ocultar automáticamente la barra de encabezado"
 
-#: src/kasasa-preferences.ui:52
+#: src/kasasa-preferences.ui:74
 msgid "Controls timeout (in seconds)"
 msgstr "Controla el tiempo de ocultación (en segundos)"
 
-#: src/kasasa-preferences.ui:72
+#: src/kasasa-preferences.ui:94
 msgid "Occupying screen percentage"
 msgstr "Porcentaje de pantalla ocupada"
 
-#: src/kasasa-preferences.ui:73
+#: src/kasasa-preferences.ui:95
 msgid "Max percentage of the screen that Kasasa can use"
 msgstr "Porcentaje máximo de la pantalla que Kasasa puede usar"
 
-#: src/kasasa-preferences.ui:93
+#: src/kasasa-preferences.ui:112
+msgid "Image switching"
+msgstr ""
+
+#: src/kasasa-preferences.ui:115
+#, fuzzy
+msgid "Window size"
+msgstr "Modo ocultar ventana"
+
+#: src/kasasa-preferences.ui:119
+msgid "Fit each image"
+msgstr ""
+
+#: src/kasasa-preferences.ui:120
+msgid "Keep width"
+msgstr ""
+
+#: src/kasasa-preferences.ui:121
+msgid "Keep height"
+msgstr ""
+
+#: src/kasasa-preferences.ui:135
 msgid "Auto close window"
 msgstr "Cerrar ventana automáticamente"
 
-#: src/kasasa-preferences.ui:94
+#: src/kasasa-preferences.ui:136
 msgid "Auto close the window after a certain time"
 msgstr "Cerrar automáticamente la ventana después de un tiempo determinado"
 
 #. translators: this refers to the time to auto discard the window
-#: src/kasasa-preferences.ui:100
+#: src/kasasa-preferences.ui:142
 msgid "Time (in minutes)"
 msgstr "Tiempo (en minutos)"
 
-#: src/kasasa-preferences.ui:120
+#: src/kasasa-preferences.ui:163
+msgid "Rendering path"
+msgstr ""
+
+#: src/kasasa-preferences.ui:192
 msgid "Screenshot delay (in seconds)"
 msgstr "Retraso de captura de pantalla (en segundos)"
 
-#: src/kasasa-preferences.ui:121
+#: src/kasasa-preferences.ui:193
 msgid "Time for delayed screenshots"
 msgstr "Tiempo para tomar capturas de pantalla retrasadas"
 
-#: src/kasasa-preferences.ui:141
+#: src/kasasa-preferences.ui:213
 msgid "Auto delete image"
 msgstr "Eliminar imagen automáticamente"
 
-#: src/kasasa-preferences.ui:142
+#: src/kasasa-preferences.ui:214
 msgid "Auto delete the image when closing the window or retaking a screenshot"
 msgstr ""
 "Eliminar automáticamente la imagen al cerrar la ventana o volver a tomar una "
 "captura de pantalla"
+
+#: src/kasasa-window-query.c:68
+msgid "Window specifier is empty"
+msgstr ""
+
+#: src/kasasa-window-query.c:89
+#, c-format
+msgid "Window specifier is missing a value after “%s:”"
+msgstr ""
+
+#: src/kasasa-window-query.c:279
+msgid "Unexpected hyprctl clients JSON"
+msgstr ""
+
+#: src/kasasa-window-query.c:327
+msgid "Unexpected hyprctl activewindow JSON"
+msgstr ""
+
+#: src/kasasa-window-query.c:363
+msgid "Unexpected hyprctl monitors JSON"
+msgstr ""
+
+#: src/kasasa-window-query.c:475
+msgid "Hyprland window listing requires hyprctl"
+msgstr ""
+
+#: src/kasasa-window-query.c:500
+msgid "Hyprland active window selection requires hyprctl"
+msgstr ""
+
+#: src/kasasa-window-query.c:525
+msgid "Hyprland monitor listing requires hyprctl"
+msgstr ""
+
+#: src/kasasa-window-query.c:553
+msgid "Monitor specifier is empty"
+msgstr ""
+
+#: src/kasasa-window-query.c:570
+#, fuzzy
+msgid "No active monitor"
+msgstr "No se pudo cargar la captura de pantalla"
+
+#: src/kasasa-window-query.c:585
+#, c-format
+msgid "No monitor named “%s”"
+msgstr ""
+
+#: src/kasasa-window-query.c:673
+msgid "No window matched the specifier"
+msgstr ""
+
+#: src/kasasa-window-query.c:684
+msgid "Multiple windows matched the specifier"
+msgstr ""
+
+#: src/kasasa-window-query.c:717 src/kasasa-window-query.c:768
+#, fuzzy
+msgid "No active window"
+msgstr "Cerrar ventana automáticamente"
+
+#: src/kasasa-window-query.c:881
+msgid "Candidates:"
+msgstr ""
 
 #~ msgid "New Window"
 #~ msgstr "Nueva ventana"

@@ -22,6 +22,7 @@
 #include "kasasa-window-query.h"
 
 #include <glib/gstdio.h>
+#include <string.h>
 
 static const gchar *clients_json =
   "["
@@ -69,6 +70,31 @@ static const gchar *clients_json =
   "    \"at\": [0, 0],"
   "    \"size\": [100, 100]"
   "  }"
+  "]";
+
+static const gchar *monitors_json =
+  "["
+  "  {"
+  "    \"id\": 0,"
+  "    \"name\": \"DP-1\","
+  "    \"description\": \"Primary Display\","
+  "    \"width\": 2560,"
+  "    \"height\": 1440,"
+  "    \"scale\": 1.25,"
+  "    \"transform\": 1,"
+  "    \"focused\": true"
+  "  },"
+  "  {"
+  "    \"id\": 1,"
+  "    \"name\": \"HDMI-A-1\","
+  "    \"description\": \"Projector\","
+  "    \"width\": 1920,"
+  "    \"height\": 1080,"
+  "    \"scale\": 1.0,"
+  "    \"transform\": 0,"
+  "    \"focused\": false"
+  "  },"
+  "  {\"id\": 2, \"name\": \"\", \"width\": 0, \"height\": 0}"
   "]";
 
 static void
@@ -196,6 +222,58 @@ test_handle_from_address (void)
 }
 
 static void
+test_monitor_parse_resolve_and_format (void)
+{
+  g_autoptr (GPtrArray) monitors = NULL;
+  g_autoptr (KasasaMonitor) resolved = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *table = NULL;
+  g_autofree gchar *json = NULL;
+  KasasaMonitor *primary;
+
+  monitors = kasasa_monitor_query_parse_json (monitors_json, &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (monitors);
+  g_assert_cmpuint (monitors->len, ==, 2);
+
+  primary = g_ptr_array_index (monitors, 0);
+  g_assert_cmpstr (primary->name, ==, "DP-1");
+  g_assert_cmpint (primary->width, ==, 2560);
+  g_assert_cmpint (primary->height, ==, 1440);
+  g_assert_cmpfloat_with_epsilon (primary->scale, 1.25, 0.001);
+  g_assert_cmpint (primary->transform, ==, 1);
+  g_assert_true (primary->focused);
+
+  resolved = kasasa_monitor_query_resolve (monitors, "active", &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (resolved);
+  g_assert_cmpstr (resolved->name, ==, "DP-1");
+  g_clear_pointer (&resolved, kasasa_monitor_free);
+
+  resolved = kasasa_monitor_query_resolve (monitors, "HDMI-A-1", &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (resolved);
+  g_assert_cmpint (resolved->id, ==, 1);
+  g_clear_pointer (&resolved, kasasa_monitor_free);
+
+  resolved = kasasa_monitor_query_resolve (monitors, "missing", &error);
+  g_assert_null (resolved);
+  g_assert_error (error,
+                  KASASA_WINDOW_QUERY_ERROR,
+                  KASASA_WINDOW_QUERY_ERROR_NO_MATCH);
+  g_clear_error (&error);
+
+  table = kasasa_monitor_query_format_table (monitors);
+  g_assert_nonnull (strstr (table, "DP-1"));
+  g_assert_nonnull (strstr (table, "2560x1440"));
+  g_assert_nonnull (strstr (table, "Primary Display *"));
+
+  json = kasasa_monitor_query_format_json (monitors);
+  g_assert_nonnull (strstr (json, "\"name\" : \"HDMI-A-1\""));
+  g_assert_nonnull (strstr (json, "\"focused\" : true"));
+}
+
+static void
 test_live_active_skips_client_listing (void)
 {
   static const gchar script[] =
@@ -259,7 +337,8 @@ ignore_stream_frame (gpointer                    user_data,
                      gint                        height,
                      gint                        stride,
                      KasasaHyprlandStreamFormat  format,
-                     gboolean                    y_invert)
+                     gboolean                    y_invert,
+                     guint32                     transform)
 {
   (void) user_data;
   (void) data;
@@ -268,6 +347,7 @@ ignore_stream_frame (gpointer                    user_data,
   (void) stride;
   (void) format;
   (void) y_invert;
+  (void) transform;
 }
 
 typedef struct
@@ -287,7 +367,7 @@ record_stream_error (gpointer      user_data,
 }
 
 static void
-test_stream_reports_connection_failure (void)
+run_stream_connection_failure_test (gboolean output)
 {
   g_autofree gchar *old_path = NULL;
   g_autofree gchar *test_path = NULL;
@@ -322,12 +402,20 @@ test_stream_reports_connection_failure (void)
   g_setenv ("PATH", test_path, TRUE);
   g_setenv ("HYPRLAND_INSTANCE_SIGNATURE", "kasasa-test-instance", TRUE);
   g_setenv ("WAYLAND_DISPLAY", "kasasa-test-display-does-not-exist", TRUE);
-  stream = kasasa_hyprland_stream_start (1,
-                                         ignore_stream_frame,
-                                         record_stream_error,
-                                         &result,
-                                         NULL,
-                                         &error);
+  if (output)
+    stream = kasasa_hyprland_stream_start_output ("DP-1",
+                                                  ignore_stream_frame,
+                                                  record_stream_error,
+                                                  &result,
+                                                  NULL,
+                                                  &error);
+  else
+    stream = kasasa_hyprland_stream_start (1,
+                                           ignore_stream_frame,
+                                           record_stream_error,
+                                           &result,
+                                           NULL,
+                                           &error);
 
   g_assert_no_error (error);
   g_assert_nonnull (stream);
@@ -352,6 +440,18 @@ test_stream_reports_connection_failure (void)
   g_clear_error (&result.error);
 }
 
+static void
+test_stream_reports_connection_failure (void)
+{
+  run_stream_connection_failure_test (FALSE);
+}
+
+static void
+test_output_stream_reports_connection_failure (void)
+{
+  run_stream_connection_failure_test (TRUE);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -359,9 +459,13 @@ main (int argc, char **argv)
   g_test_add_func ("/unit/window-query/spec-parse", test_spec_parse);
   g_test_add_func ("/unit/window-query/resolve", test_parse_and_resolve);
   g_test_add_func ("/unit/window-query/handle", test_handle_from_address);
+  g_test_add_func ("/unit/monitor-query/parse-resolve-format",
+                   test_monitor_parse_resolve_and_format);
   g_test_add_func ("/unit/window-query/live-active",
                    test_live_active_skips_client_listing);
   g_test_add_func ("/unit/hyprland-stream/connection-failure",
                    test_stream_reports_connection_failure);
+  g_test_add_func ("/unit/hyprland-stream/output-connection-failure",
+                   test_output_stream_reports_connection_failure);
   return g_test_run ();
 }

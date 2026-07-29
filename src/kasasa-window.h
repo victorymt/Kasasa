@@ -105,6 +105,11 @@ void kasasa_window_load_first_hyprland_screencast (KasasaWindow *window,
                                                    guint32       window_handle,
                                                    gint          width,
                                                    gint          height);
+void kasasa_window_load_first_hyprland_monitor_screencast (
+  KasasaWindow *window,
+  const gchar  *monitor_name,
+  gint          width,
+  gint          height);
 void kasasa_window_cancel_delayed_screenshot (KasasaWindow *window);
 
 G_END_DECLS

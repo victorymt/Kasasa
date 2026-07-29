@@ -43,8 +43,10 @@ struct _KasasaApplication
 
   gboolean start_with_screencast;
   gboolean list_windows;
+  gboolean list_monitors;
   gboolean list_json;
   gchar   *window_spec;
+  gchar   *monitor_spec;
 };
 
 G_DEFINE_FINAL_TYPE (KasasaApplication, kasasa_application, ADW_TYPE_APPLICATION)
@@ -101,6 +103,58 @@ run_list_windows (gboolean as_json)
     g_print ("\n");
 
   return KASASA_EXIT_OK;
+}
+
+static int
+run_list_monitors (gboolean as_json)
+{
+  g_autoptr (GPtrArray) monitors = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *text = NULL;
+
+  monitors = kasasa_monitor_query_list (&error);
+  if (monitors == NULL)
+    {
+      g_printerr ("%s\n",
+                  error != NULL ? error->message : _("Failed to list monitors"));
+      return query_error_to_exit_code (error);
+    }
+
+  text = as_json
+         ? kasasa_monitor_query_format_json (monitors)
+         : kasasa_monitor_query_format_table (monitors);
+  g_print ("%s", text);
+  if (as_json)
+    g_print ("\n");
+
+  return KASASA_EXIT_OK;
+}
+
+static const gchar *
+validate_cli_options (gboolean     screencast,
+                      gboolean     list_windows,
+                      gboolean     list_monitors,
+                      gboolean     list_json,
+                      const gchar *window_spec,
+                      const gchar *monitor_spec)
+{
+  if (list_windows && list_monitors)
+    return _("--list-windows and --list-monitors are mutually exclusive");
+
+  if (list_json && !list_windows && !list_monitors)
+    return _("--json requires --list-windows or --list-monitors");
+
+  if (window_spec != NULL && monitor_spec != NULL)
+    return _("--window and --monitor are mutually exclusive");
+
+  if (monitor_spec != NULL && !screencast)
+    return _("--monitor requires --screencast");
+
+  if ((list_windows || list_monitors)
+      && (window_spec != NULL || monitor_spec != NULL))
+    return _("Listing options cannot be combined with a capture target");
+
+  return NULL;
 }
 
 static GtkWindow *
@@ -195,6 +249,41 @@ present_targeted_capture (KasasaApplication *self,
     }
 }
 
+static int
+present_monitor_capture (KasasaApplication *self,
+                         const gchar       *monitor_spec)
+{
+  g_autoptr (KasasaMonitor) monitor = NULL;
+  g_autoptr (GError) error = NULL;
+  GtkWindow *window;
+
+  monitor = kasasa_monitor_query_resolve_live (monitor_spec, &error);
+  if (monitor == NULL)
+    {
+      g_printerr ("%s\n",
+                  error != NULL ? error->message : _("Failed to resolve monitor"));
+      return query_error_to_exit_code (error);
+    }
+
+  if (!kasasa_hyprland_stream_available ())
+    {
+      g_printerr ("%s\n",
+                  _("Targeted monitor screencast requires Hyprland Wayland"));
+      return KASASA_EXIT_UNAVAILABLE;
+    }
+
+  window = ensure_pin_window (self, TRUE);
+  if (!KASASA_IS_WINDOW (window))
+    return KASASA_EXIT_ERROR;
+
+  kasasa_window_load_first_hyprland_monitor_screencast (
+    KASASA_WINDOW (window),
+    monitor->name,
+    monitor->width,
+    monitor->height);
+  return KASASA_EXIT_OK;
+}
+
 static void
 present_or_create_window (KasasaApplication *self,
                           gboolean           start_with_screencast)
@@ -243,9 +332,11 @@ kasasa_application_activate (GApplication *app)
 
   g_assert (KASASA_IS_APPLICATION (app));
 
-  if (self->list_windows)
+  if (self->list_windows || self->list_monitors)
     {
-      int code = run_list_windows (self->list_json);
+      int code = self->list_windows
+                 ? run_list_windows (self->list_json)
+                 : run_list_monitors (self->list_json);
       g_application_quit (app);
       /* g_application_run will still return 0 from activate; list is handled
        * primarily in command-line / local options. */
@@ -261,6 +352,12 @@ kasasa_application_activate (GApplication *app)
       return;
     }
 
+  if (self->monitor_spec != NULL)
+    {
+      present_monitor_capture (self, self->monitor_spec);
+      return;
+    }
+
   present_or_create_window (self, self->start_with_screencast);
   self->start_with_screencast = FALSE;
 }
@@ -271,25 +368,41 @@ kasasa_application_handle_local_options (GApplication *app,
 {
   KasasaApplication *self = KASASA_APPLICATION (app);
   const gchar *window_spec = NULL;
+  const gchar *monitor_spec = NULL;
+  const gchar *validation_error;
 
   self->start_with_screencast = g_variant_dict_contains (options, "screencast");
   self->list_windows = g_variant_dict_contains (options, "list-windows");
+  self->list_monitors = g_variant_dict_contains (options, "list-monitors");
   self->list_json = g_variant_dict_contains (options, "json");
   g_clear_pointer (&self->window_spec, g_free);
+  g_clear_pointer (&self->monitor_spec, g_free);
 
   if (g_variant_dict_lookup (options, "window", "&s", &window_spec)
       && window_spec != NULL)
     self->window_spec = g_strdup (window_spec);
 
-  if (self->list_json && !self->list_windows)
+  if (g_variant_dict_lookup (options, "monitor", "&s", &monitor_spec)
+      && monitor_spec != NULL)
+    self->monitor_spec = g_strdup (monitor_spec);
+
+  validation_error = validate_cli_options (self->start_with_screencast,
+                                           self->list_windows,
+                                           self->list_monitors,
+                                           self->list_json,
+                                           self->window_spec,
+                                           self->monitor_spec);
+  if (validation_error != NULL)
     {
-      g_printerr ("%s\n", _("--json requires --list-windows"));
+      g_printerr ("%s\n", validation_error);
       return KASASA_EXIT_ERROR;
     }
 
   /* Pure listing: no remote activation / no GUI. */
   if (self->list_windows)
     return run_list_windows (self->list_json);
+  if (self->list_monitors)
+    return run_list_monitors (self->list_json);
 
   return -1;
 }
@@ -301,30 +414,47 @@ kasasa_application_command_line (GApplication            *app,
   KasasaApplication *self = KASASA_APPLICATION (app);
   GVariantDict *options = g_application_command_line_get_options_dict (cmdline);
   const gchar *window_spec = NULL;
+  const gchar *monitor_spec = NULL;
+  const gchar *validation_error;
   gboolean start_with_screencast;
   gboolean list_windows;
+  gboolean list_monitors;
   gboolean list_json;
 
   start_with_screencast = g_variant_dict_contains (options, "screencast");
   list_windows = g_variant_dict_contains (options, "list-windows");
+  list_monitors = g_variant_dict_contains (options, "list-monitors");
   list_json = g_variant_dict_contains (options, "json");
 
-  if (list_json && !list_windows)
+  g_variant_dict_lookup (options, "window", "&s", &window_spec);
+  g_variant_dict_lookup (options, "monitor", "&s", &monitor_spec);
+
+  validation_error = validate_cli_options (start_with_screencast,
+                                           list_windows,
+                                           list_monitors,
+                                           list_json,
+                                           window_spec,
+                                           monitor_spec);
+  if (validation_error != NULL)
     {
       g_application_command_line_printerr (cmdline,
                                            "%s\n",
-                                           _("--json requires --list-windows"));
+                                           validation_error);
       return KASASA_EXIT_ERROR;
     }
 
   if (list_windows)
     return run_list_windows (list_json);
+  if (list_monitors)
+    return run_list_monitors (list_json);
 
-  if (g_variant_dict_lookup (options, "window", "&s", &window_spec)
-      && window_spec != NULL)
+  if (window_spec != NULL)
     {
       return present_targeted_capture (self, window_spec, start_with_screencast);
     }
+
+  if (monitor_spec != NULL)
+    return present_monitor_capture (self, monitor_spec);
 
   present_or_create_window (self, start_with_screencast);
   return KASASA_EXIT_OK;
@@ -349,6 +479,7 @@ kasasa_application_dispose (GObject *object)
   KasasaApplication *self = KASASA_APPLICATION (object);
 
   g_clear_pointer (&self->window_spec, g_free);
+  g_clear_pointer (&self->monitor_spec, g_free);
 
   G_OBJECT_CLASS (kasasa_application_parent_class)->dispose (object);
 }
@@ -473,7 +604,7 @@ kasasa_application_init (KasasaApplication *self)
       .flags = G_OPTION_FLAG_NONE,
       .arg = G_OPTION_ARG_NONE,
       .arg_data = NULL,
-      .description = _("With --list-windows, print JSON"),
+      .description = _("With a listing option, print JSON"),
       .arg_description = NULL,
     },
     {
@@ -485,13 +616,48 @@ kasasa_application_init (KasasaApplication *self)
       .description = _("Capture a window: class, title:…, address:…, or active"),
       .arg_description = _("SPEC"),
     },
+    {
+      .long_name = "list-monitors",
+      .short_name = 0,
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_NONE,
+      .arg_data = NULL,
+      .description = _("List capturable monitors (Hyprland) and exit"),
+      .arg_description = NULL,
+    },
+    {
+      .long_name = "monitor",
+      .short_name = 'm',
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_STRING,
+      .arg_data = NULL,
+      .description = _("Capture a monitor live: output name or active"),
+      .arg_description = _("NAME"),
+    },
     { NULL }
   };
 
   self->start_with_screencast = FALSE;
   self->list_windows = FALSE;
+  self->list_monitors = FALSE;
   self->list_json = FALSE;
   self->window_spec = NULL;
+  self->monitor_spec = NULL;
+
+  g_application_set_option_context_summary (
+    G_APPLICATION (self),
+    _("Pin screenshots and screencasts above other windows"));
+  g_application_set_option_context_description (
+    G_APPLICATION (self),
+    _("Capture modes:\n"
+      "  kasasa                              Take a screenshot through the Portal\n"
+      "  kasasa --screencast                 Start a screencast through the Portal\n"
+      "  kasasa --window=active              Capture the active Hyprland window\n"
+      "  kasasa --screencast --monitor=active\n"
+      "                                      Capture the active Hyprland monitor live\n"
+      "\n"
+      "Use --list-windows or --list-monitors to inspect Hyprland capture targets.\n"
+      "Native monitor capture requires --monitor together with --screencast."));
 
   g_application_add_main_option_entries (G_APPLICATION (self), entries);
 

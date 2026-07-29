@@ -49,4 +49,11 @@ gboolean kasasa_screencast_show_hyprland (KasasaScreencast *screencast,
                                           gint              expected_height,
                                           GError          **error);
 
+/* Hyprland-native live pin of a monitor (no Portal). */
+gboolean kasasa_screencast_show_hyprland_output (KasasaScreencast *screencast,
+                                                 const gchar      *output_name,
+                                                 gint              expected_width,
+                                                 gint              expected_height,
+                                                 GError          **error);
+
 G_END_DECLS

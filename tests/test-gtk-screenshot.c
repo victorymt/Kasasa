@@ -28,6 +28,7 @@
 #include "kasasa-content.h"
 #include "kasasa-screencast.h"
 #include "kasasa-screencast-pipeline.h"
+#include "kasasa-window-query.h"
 #include "kasasa-screenshot.h"
 #include "kasasa-window.h"
 
@@ -175,6 +176,30 @@ test_screencast_rejects_invalid_connection (void)
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
   g_assert_cmpint (fcntl (fd, F_GETFD), ==, -1);
   g_assert_cmpint (errno, ==, EBADF);
+}
+
+static void
+test_hyprland_output_rejects_unavailable_backend (void)
+{
+  g_autoptr (KasasaScreencast) screencast = kasasa_screencast_new ();
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *old_wayland_display = NULL;
+
+  g_object_ref_sink (screencast);
+  old_wayland_display = g_strdup (g_getenv ("WAYLAND_DISPLAY"));
+  g_unsetenv ("WAYLAND_DISPLAY");
+
+  g_assert_false (kasasa_screencast_show_hyprland_output (screencast,
+                                                          "DP-1",
+                                                          1920,
+                                                          1080,
+                                                          &error));
+
+  if (old_wayland_display != NULL)
+    g_setenv ("WAYLAND_DISPLAY", old_wayland_display, TRUE);
+  g_assert_error (error,
+                  KASASA_WINDOW_QUERY_ERROR,
+                  KASASA_WINDOW_QUERY_ERROR_UNAVAILABLE);
 }
 
 static void
@@ -623,6 +648,8 @@ main (int argc, char **argv)
                    test_content_fit_ignores_rounding_gaps);
   g_test_add_func ("/gtk/screencast/invalid-connection",
                    test_screencast_rejects_invalid_connection);
+  g_test_add_func ("/gtk/screencast/hyprland-output-unavailable",
+                   test_hyprland_output_rejects_unavailable_backend);
   g_test_add_func ("/gtk/screencast/pipeline-preference",
                    test_screencast_pipeline_preference);
   g_test_add_func ("/gtk/screencast/cpu-fallback-signal",

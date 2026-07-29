@@ -9,7 +9,6 @@
   <description xml:lang="en">Clip and pin what's important to a small floating window, so you don't have to switch between windows or workspaces repeatedly.</description>
   <homepage rdf:resource="https://github.com/victorymt/Kasasa"/>
   <bug-database rdf:resource="https://github.com/victorymt/Kasasa/issues"/>
-  <download-page rdf:resource="https://flathub.org/apps/io.github.kelvinnovais.Kasasa"/>
   <programming-language>C</programming-language>
   <platform>GTK 4</platform>
   <platform>Libadwaita</platform>

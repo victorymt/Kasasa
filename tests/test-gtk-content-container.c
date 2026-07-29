@@ -51,6 +51,7 @@ typedef struct
   GtkWidget *retake_button;
   GtkWidget *delayed_button;
   GtkWidget *screencast_button;
+  GtkWidget *hyprland_monitor_screencast_button;
   GtkWidget *stop_screencast_button;
   GtkWidget *toolbar_overlay;
   gchar *image_path;
@@ -379,6 +380,9 @@ fixture_setup (Fixture *fixture,
                                                "add_delayed_screenshot_button");
   fixture->screencast_button = find_widget_by_id (
     GTK_WIDGET (fixture->container), "add_screencast_button");
+  fixture->hyprland_monitor_screencast_button = find_widget_by_id (
+    GTK_WIDGET (fixture->container),
+    "add_hyprland_monitor_screencast_button");
   fixture->stop_screencast_button = find_widget_by_id (
     GTK_WIDGET (fixture->container), "stop_screencast_button");
   fixture->toolbar_overlay = find_widget_by_id (GTK_WIDGET (fixture->container),
@@ -390,6 +394,7 @@ fixture_setup (Fixture *fixture,
   g_assert_nonnull (fixture->retake_button);
   g_assert_nonnull (fixture->delayed_button);
   g_assert_nonnull (fixture->screencast_button);
+  g_assert_nonnull (fixture->hyprland_monitor_screencast_button);
   g_assert_nonnull (fixture->stop_screencast_button);
   g_assert_nonnull (fixture->toolbar_overlay);
 

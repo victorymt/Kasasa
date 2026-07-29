@@ -29,6 +29,7 @@
 #include "kasasa-screenshot.h"
 #include "kasasa-screencast.h"
 #include "kasasa-source.h"
+#include "kasasa-window-query.h"
 
 #define DELAYED_SCREENSHOT_NOTIFICATION_ID "delayed-screenshot"
 #define SCREENCAST_CREATE_TIMEOUT_MSEC 10000
@@ -44,6 +45,7 @@ struct _KasasaContentContainer
   GtkButton               *add_screenshot_button;
   GtkButton               *add_delayed_screenshot_button;
   GtkButton               *add_screencast_button;
+  GtkButton               *add_hyprland_monitor_screencast_button;
   GtkButton               *remove_content_button;
   GtkButton               *stop_screencast_button;
   GtkButton               *copy_screenshot_button;
@@ -105,6 +107,13 @@ G_DEFINE_FINAL_TYPE (KasasaContentContainer, kasasa_content_container, ADW_TYPE_
 static GtkWidget * get_current_content (KasasaContentContainer *self);
 static void start_screencast_session (KasasaContentContainer *self,
                                       gboolean                first_capture);
+static gboolean append_hyprland_monitor_screencast (
+  KasasaContentContainer *self,
+  const KasasaMonitor    *monitor,
+  GError                **error);
+static void show_operation_error (KasasaContentContainer *self,
+                                  const gchar            *fallback_message,
+                                  const GError           *error);
 
 static gboolean
 has_active_screencast (KasasaContentContainer *self)
@@ -128,6 +137,35 @@ request_was_cancelled (const GError *error)
 {
   return error != NULL
          && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+}
+
+static void
+create_hyprland_monitor_screencast (GtkButton *button,
+                                    gpointer   user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
+  g_autoptr (KasasaMonitor) monitor = NULL;
+  g_autoptr (GError) error = NULL;
+
+  gtk_popover_popdown (self->more_actions_popover);
+
+  if (has_active_screencast (self))
+    {
+      AdwToast *toast = adw_toast_new (_("A screencast is already active"));
+
+      adw_toast_overlay_add_toast (self->toast_overlay, toast);
+      return;
+    }
+
+  monitor = kasasa_monitor_query_resolve_live ("active", &error);
+  if (monitor == NULL)
+    {
+      show_operation_error (self, _("Couldn't find the active monitor"), error);
+      return;
+    }
+
+  if (!append_hyprland_monitor_screencast (self, monitor, &error))
+    show_operation_error (self, _("Couldn't display the monitor"), error);
 }
 
 static void
@@ -1596,6 +1634,93 @@ kasasa_content_container_request_screencast (KasasaContentContainer *self)
   start_screencast_session (self, FALSE);
 }
 
+static gboolean
+append_hyprland_monitor_screencast (KasasaContentContainer *self,
+                                    const KasasaMonitor    *monitor,
+                                    GError                **error)
+{
+  KasasaScreencast *screencast;
+
+  g_return_val_if_fail (KASASA_IS_CONTENT_CONTAINER (self), FALSE);
+  g_return_val_if_fail (monitor != NULL, FALSE);
+
+  screencast = kasasa_screencast_new ();
+  g_signal_connect (screencast, "new-dimension",
+                    G_CALLBACK (on_screencast_new_dimension), self);
+  g_signal_connect (screencast, "eos",
+                    G_CALLBACK (on_screencast_eos), self);
+
+  if (!kasasa_screencast_show_hyprland_output (screencast,
+                                               monitor->name,
+                                               monitor->width,
+                                               monitor->height,
+                                               error))
+    {
+      g_object_unref (screencast);
+      return FALSE;
+    }
+
+  adw_carousel_append (self->carousel, GTK_WIDGET (screencast));
+  adw_carousel_scroll_to (self->carousel, GTK_WIDGET (screencast), TRUE);
+  kasasa_content_container_update_toolbar_sensibility (self);
+  return TRUE;
+}
+
+void
+kasasa_content_container_load_first_hyprland_monitor_screencast (
+  KasasaContentContainer *self,
+  const gchar            *monitor_name,
+  gint                    width,
+  gint                    height)
+{
+  KasasaWindow *window;
+  KasasaMonitor monitor = { 0 };
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GNotification) notification = NULL;
+  g_autoptr (GIcon) icon = NULL;
+
+  g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
+  g_return_if_fail (monitor_name != NULL && *monitor_name != '\0');
+
+  window = get_root_window (self);
+  if (window == NULL)
+    return;
+
+  monitor.name = (gchar *) monitor_name;
+  monitor.width = width;
+  monitor.height = height;
+
+  if (!append_hyprland_monitor_screencast (self, &monitor, &error))
+    {
+      g_warning ("Couldn't start Hyprland monitor screencast: %s",
+                 error != NULL ? error->message : "unknown");
+      icon = g_themed_icon_new ("dialog-warning-symbolic");
+      notification = g_notification_new (_("Screencast failed"));
+      g_notification_set_icon (notification, icon);
+      g_notification_set_body (notification,
+                               error != NULL
+                               ? error->message
+                               : _("Couldn't display the monitor"));
+      g_application_send_notification (g_application_get_default (),
+                                       "io.github.kelvinnovais.Kasasa",
+                                       notification);
+      gtk_window_close (GTK_WINDOW (window));
+      return;
+    }
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  kasasa_window_reset_zoom (window);
+  gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
+  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
+  kasasa_content_container_request_window_resize (self);
+
+  if (g_settings_get_boolean (settings, "auto-discard-window"))
+    kasasa_window_auto_discard_window (window);
+
+  kasasa_window_miniaturize_window (window, TRUE);
+}
+
 void
 kasasa_content_container_load_first_hyprland_screencast (KasasaContentContainer *self,
                                                          guint32                 window_handle,
@@ -2000,6 +2125,7 @@ kasasa_content_container_class_init (KasasaContentContainerClass *klass)
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_screenshot_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_delayed_screenshot_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_screencast_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_hyprland_monitor_screencast_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, remove_content_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, stop_screencast_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, copy_screenshot_button);
@@ -2054,6 +2180,10 @@ kasasa_content_container_init (KasasaContentContainer *self)
   g_signal_connect (self->add_screencast_button,
                     "clicked",
                     G_CALLBACK (create_screencast_session),
+                    self);
+  g_signal_connect (self->add_hyprland_monitor_screencast_button,
+                    "clicked",
+                    G_CALLBACK (create_hyprland_monitor_screencast),
                     self);
   g_signal_connect (self->remove_content_button,
                     "clicked",

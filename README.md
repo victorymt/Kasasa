@@ -2,20 +2,6 @@
 
 # Kasasa
 
-<p align="center">
- <!--
-  <a href="https://github.com/KelvinNovais/Kasasa/actions/workflows/flatpak.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/KelvinNovais/Kasasa/flatpak.yml?logo=flatpak&logoColor=fff&labelColor=22d841&color=f9f28f"/>
- </a>
-  <a href="https://github.com/KelvinNovais/Kasasa/releases/latest">
-    <img src="https://img.shields.io/github/v/release/KelvinNovais/Kasasa?logo=github&logoColor=fff&labelColor=22d841&color=f9f28f"/>
-  </a>
- -->
-  <a href="https://flathub.org/apps/io.github.kelvinnovais.Kasasa">
-    <img src="https://img.shields.io/flathub/downloads/io.github.kelvinnovais.Kasasa?logo=flathub&logoColor=fff&labelColor=22d841&color=white"/>
-  </a>
-</p>
-
 Clip and pin what's important to a small floating window, so you don't have to switch between windows or workspaces repeatedly. 
 The window can become miniaturized or have its opacity reduced, in order to do not block what's behind it.
 
@@ -28,7 +14,7 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > [!NOTE]
 > On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts.
 > 
-> There you can set a shortcut to call **`flatpak run io.github.kelvinnovais.Kasasa`**
+> There you can set a shortcut to call **`kasasa`**.
 
 > [!NOTE]
 > If using Hyprland, add the following rule:
@@ -71,12 +57,30 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > kasasa --screencast --window=title:nvim
 > kasasa --screencast --window=active
 > ```
+>
+> Hyprland-native monitor capture is also available. It bypasses Portal and
+> captures the named output directly:
+>
+> ```
+> kasasa --list-monitors
+> kasasa --list-monitors --json
+> kasasa --screencast --monitor=active
+> kasasa --screencast --monitor=DP-1
+> ```
+>
+> `--monitor` is for live capture only, so it requires `--screencast` and
+> cannot be combined with `--window`.
 
 ## Screencast
 
 Start a live pin from the toolbar, or launch Kasasa with
 `kasasa --screencast` (`-c`). The desktop portal lets you choose either an
 entire screen or an individual window.
+
+On Hyprland, **More actions → Active monitor (Hyprland)** captures the active
+monitor through Wayland's native image-copy-capture protocol without opening
+the Portal picker. The regular **Screencast** action remains Portal-based, so
+it can still interactively select a screen or a window.
 
 - Portal previews are synchronized and capped at 30 FPS to keep CPU usage
   predictable. Kasasa prefers the GPU-accelerated GL pipeline when it is
@@ -94,9 +98,24 @@ entire screen or an individual window.
 > On GNOME versions < 46, a dialog will appear to set up and take the screenshot,
 > instead of directly using the GNOME's screenshoter; this may be inconvenient. 
 
-## Installation
+## Building
 
-[<img width="240" alt="Download on Flathub" src="https://flathub.org/api/badge?svg&locale=en"/>](https://flathub.org/apps/io.github.kelvinnovais.Kasasa)
+Kasasa uses Meson. Install a C compiler, Meson, Ninja, and the development
+packages for GTK 4, Libadwaita, libportal, GStreamer, JSON-GLib, and Wayland,
+plus `wayland-protocols` (including the staging image-copy-capture XML files),
+then run:
+
+```sh
+meson setup build --buildtype=release
+meson compile -C build
+./build/src/kasasa
+```
+
+To install the compiled application:
+
+```sh
+meson install -C build
+```
 
 ## Language
 

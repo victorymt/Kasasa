@@ -8,6 +8,10 @@ src/kasasa-window.c
 src/kasasa-window.ui
 src/kasasa-content-container.c
 src/kasasa-content-container.ui
+src/kasasa-hyprland-capture.c
+src/kasasa-hyprland-stream.c
 src/kasasa-screencast.c
+src/kasasa-screenshot.c
 src/kasasa-preferences.c
 src/kasasa-preferences.ui
+src/kasasa-window-query.c

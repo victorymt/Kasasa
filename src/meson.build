@@ -1,5 +1,7 @@
 wayland_scanner = find_program('wayland-scanner')
 wayland_client_dep = dependency('wayland-client')
+wayland_protocols_dep = dependency('wayland-protocols')
+wayland_protocols_dir = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir')
 wayland_protocols_gen = []
 
 toplevel_export_xml = files('../protocols/hyprland-toplevel-export-v1.xml')
@@ -19,6 +21,29 @@ toplevel_export_protocol_c = custom_target(
 )
 
 wayland_protocols_gen += [toplevel_export_client_h, toplevel_export_protocol_c]
+
+foreach protocol : [
+  ['ext-foreign-toplevel-list-v1', wayland_protocols_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml'],
+  ['ext-image-capture-source-v1', wayland_protocols_dir / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml'],
+  ['ext-image-copy-capture-v1', wayland_protocols_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'],
+]
+  protocol_name = protocol[0]
+  protocol_xml = files(protocol[1])
+
+  protocol_client_h = custom_target(
+    protocol_name + '-client.h',
+    input: protocol_xml,
+    output: protocol_name + '-client.h',
+    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+  )
+  protocol_c = custom_target(
+    protocol_name + '-protocol.c',
+    input: protocol_xml,
+    output: protocol_name + '-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  )
+  wayland_protocols_gen += [protocol_client_h, protocol_c]
+endforeach
 
 kasasa_sources = [
   'main.c',

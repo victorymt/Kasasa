@@ -1,6 +1,6 @@
 /* kasasa-hyprland-stream.c
  *
- * Continuous window capture via hyprland-toplevel-export-v1.
+ * Continuous native capture of Hyprland windows and outputs.
  *
  * Copyright 2026 victorymt
  *
@@ -37,6 +37,8 @@
 #include <glib/gi18n.h>
 #include <wayland-client.h>
 
+#include "ext-image-capture-source-v1-client.h"
+#include "ext-image-copy-capture-v1-client.h"
 #include "hyprland-toplevel-export-v1-client.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-window-query.h"
@@ -45,12 +47,27 @@
 #define EVENT_POLL_INTERVAL_MSEC          100
 #define MAX_CONSECUTIVE_FRAME_FAILURES    3
 
+typedef enum
+{
+  KASASA_HYPRLAND_STREAM_SOURCE_WINDOW,
+  KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT,
+} KasasaHyprlandStreamSource;
+
+typedef struct
+{
+  uint32_t global_name;
+  struct wl_output *output;
+  gchar *name;
+} KasasaWaylandOutput;
+
 struct _KasasaHyprlandStream
 {
   GThread *thread;
   gint stop_requested;
 
+  KasasaHyprlandStreamSource source;
   guint32 handle;
+  gchar *output_name;
 
   KasasaHyprlandStreamFrameFunc frame_cb;
   KasasaHyprlandStreamErrorFunc error_cb;
@@ -62,9 +79,15 @@ struct _KasasaHyprlandStream
   struct wl_registry *registry;
   struct wl_shm *shm;
   struct hyprland_toplevel_export_manager_v1 *export_manager;
+  struct ext_output_image_capture_source_manager_v1 *output_source_manager;
+  struct ext_image_copy_capture_manager_v1 *capture_manager;
+  struct ext_image_capture_source_v1 *capture_source;
+  struct ext_image_copy_capture_session_v1 *capture_session;
+  GPtrArray *outputs;
 
   /* Per-frame state */
   struct hyprland_toplevel_export_frame_v1 *frame;
+  struct ext_image_copy_capture_frame_v1 *output_frame;
   struct wl_buffer *buffer;
   void *buffer_data;
   size_t buffer_size;
@@ -77,12 +100,30 @@ struct _KasasaHyprlandStream
   uint32_t allocated_buffer_width;
   uint32_t allocated_buffer_height;
   uint32_t allocated_buffer_stride;
+  gboolean buffer_format_valid;
   gboolean buffer_info_ready;
   gboolean buffer_done;
   gboolean frame_failed;
   gboolean frame_ready;
+  gboolean constraints_done;
+  gboolean capture_stopped;
+  gboolean has_emitted_frame;
+  uint32_t failure_reason;
   uint32_t frame_flags;
+  uint32_t frame_transform;
 };
+
+static void
+wayland_output_free (KasasaWaylandOutput *output)
+{
+  if (output == NULL)
+    return;
+
+  if (output->output != NULL)
+    wl_output_destroy (output->output);
+  g_free (output->name);
+  g_free (output);
+}
 
 static gboolean
 stream_stop_requested (KasasaHyprlandStream *self)
@@ -193,15 +234,26 @@ stream_clear_frame (KasasaHyprlandStream *self)
       hyprland_toplevel_export_frame_v1_destroy (self->frame);
       self->frame = NULL;
     }
-  self->buffer_info_ready = FALSE;
-  self->buffer_done = FALSE;
+  if (self->output_frame != NULL)
+    {
+      ext_image_copy_capture_frame_v1_destroy (self->output_frame);
+      self->output_frame = NULL;
+    }
+  if (self->source == KASASA_HYPRLAND_STREAM_SOURCE_WINDOW)
+    {
+      self->buffer_info_ready = FALSE;
+      self->buffer_done = FALSE;
+      self->buffer_format = 0;
+      self->buffer_format_valid = FALSE;
+      self->buffer_width = 0;
+      self->buffer_height = 0;
+      self->buffer_stride = 0;
+    }
   self->frame_failed = FALSE;
   self->frame_ready = FALSE;
+  self->failure_reason = 0;
   self->frame_flags = 0;
-  self->buffer_format = 0;
-  self->buffer_width = 0;
-  self->buffer_height = 0;
-  self->buffer_stride = 0;
+  self->frame_transform = WL_OUTPUT_TRANSFORM_NORMAL;
 }
 
 static int
@@ -308,6 +360,15 @@ ensure_shm_buffer (KasasaHyprlandStream *self)
   return TRUE;
 }
 
+static gboolean
+stream_format_supported (uint32_t format)
+{
+  return format == WL_SHM_FORMAT_XRGB8888
+         || format == WL_SHM_FORMAT_ARGB8888
+         || format == WL_SHM_FORMAT_XBGR8888
+         || format == WL_SHM_FORMAT_ABGR8888;
+}
+
 static void
 frame_handle_buffer (void                                   *data,
                      struct hyprland_toplevel_export_frame_v1 *frame,
@@ -321,10 +382,7 @@ frame_handle_buffer (void                                   *data,
   (void) frame;
 
   /* Prefer wl_shm formats we can convert easily. */
-  if (format != WL_SHM_FORMAT_XRGB8888
-      && format != WL_SHM_FORMAT_ARGB8888
-      && format != WL_SHM_FORMAT_XBGR8888
-      && format != WL_SHM_FORMAT_ABGR8888)
+  if (!stream_format_supported (format))
     {
       g_debug ("Ignoring unsupported shm format 0x%x", format);
       return;
@@ -334,6 +392,7 @@ frame_handle_buffer (void                                   *data,
   self->buffer_width = width;
   self->buffer_height = height;
   self->buffer_stride = stride;
+  self->buffer_format_valid = TRUE;
   self->buffer_info_ready = TRUE;
 }
 
@@ -426,6 +485,282 @@ static const struct hyprland_toplevel_export_frame_v1_listener frame_listener = 
 };
 
 static void
+output_constraints_begin (KasasaHyprlandStream *self)
+{
+  if (!self->constraints_done)
+    return;
+
+  self->constraints_done = FALSE;
+  self->buffer_info_ready = FALSE;
+  self->buffer_format = 0;
+  self->buffer_format_valid = FALSE;
+  self->buffer_width = 0;
+  self->buffer_height = 0;
+  self->buffer_stride = 0;
+}
+
+static void
+output_session_handle_buffer_size (
+  void                                     *data,
+  struct ext_image_copy_capture_session_v1 *session,
+  uint32_t                                  width,
+  uint32_t                                  height)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) session;
+  output_constraints_begin (self);
+  self->buffer_width = width;
+  self->buffer_height = height;
+  self->buffer_stride = width <= G_MAXUINT32 / 4 ? width * 4 : 0;
+}
+
+static void
+output_session_handle_shm_format (
+  void                                     *data,
+  struct ext_image_copy_capture_session_v1 *session,
+  uint32_t                                  format)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) session;
+  output_constraints_begin (self);
+  if (!self->buffer_format_valid && stream_format_supported (format))
+    {
+      self->buffer_format = format;
+      self->buffer_format_valid = TRUE;
+    }
+}
+
+static void
+output_session_handle_dmabuf_device (
+  void                                     *data,
+  struct ext_image_copy_capture_session_v1 *session,
+  struct wl_array                          *device)
+{
+  (void) data;
+  (void) session;
+  (void) device;
+}
+
+static void
+output_session_handle_dmabuf_format (
+  void                                     *data,
+  struct ext_image_copy_capture_session_v1 *session,
+  uint32_t                                  format,
+  struct wl_array                          *modifiers)
+{
+  (void) data;
+  (void) session;
+  (void) format;
+  (void) modifiers;
+}
+
+static void
+output_session_handle_done (
+  void                                     *data,
+  struct ext_image_copy_capture_session_v1 *session)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) session;
+  self->constraints_done = TRUE;
+  self->buffer_info_ready = self->buffer_format_valid
+                            && self->buffer_width > 0
+                            && self->buffer_height > 0
+                            && self->buffer_stride > 0;
+}
+
+static void
+output_session_handle_stopped (
+  void                                     *data,
+  struct ext_image_copy_capture_session_v1 *session)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) session;
+  self->capture_stopped = TRUE;
+}
+
+static const struct ext_image_copy_capture_session_v1_listener
+output_session_listener = {
+  .buffer_size = output_session_handle_buffer_size,
+  .shm_format = output_session_handle_shm_format,
+  .dmabuf_device = output_session_handle_dmabuf_device,
+  .dmabuf_format = output_session_handle_dmabuf_format,
+  .done = output_session_handle_done,
+  .stopped = output_session_handle_stopped,
+};
+
+static void
+output_frame_handle_transform (
+  void                                   *data,
+  struct ext_image_copy_capture_frame_v1 *frame,
+  uint32_t                                transform)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) frame;
+  self->frame_transform = transform <= WL_OUTPUT_TRANSFORM_FLIPPED_270
+                          ? transform
+                          : WL_OUTPUT_TRANSFORM_NORMAL;
+}
+
+static void
+output_frame_handle_damage (
+  void                                   *data,
+  struct ext_image_copy_capture_frame_v1 *frame,
+  int32_t                                 x,
+  int32_t                                 y,
+  int32_t                                 width,
+  int32_t                                 height)
+{
+  (void) data;
+  (void) frame;
+  (void) x;
+  (void) y;
+  (void) width;
+  (void) height;
+}
+
+static void
+output_frame_handle_presentation_time (
+  void                                   *data,
+  struct ext_image_copy_capture_frame_v1 *frame,
+  uint32_t                                tv_sec_hi,
+  uint32_t                                tv_sec_lo,
+  uint32_t                                tv_nsec)
+{
+  (void) data;
+  (void) frame;
+  (void) tv_sec_hi;
+  (void) tv_sec_lo;
+  (void) tv_nsec;
+}
+
+static void
+output_frame_handle_ready (
+  void                                   *data,
+  struct ext_image_copy_capture_frame_v1 *frame)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) frame;
+  self->frame_ready = TRUE;
+}
+
+static void
+output_frame_handle_failed (
+  void                                   *data,
+  struct ext_image_copy_capture_frame_v1 *frame,
+  uint32_t                                reason)
+{
+  KasasaHyprlandStream *self = data;
+
+  (void) frame;
+  self->failure_reason = reason;
+  self->frame_failed = TRUE;
+}
+
+static const struct ext_image_copy_capture_frame_v1_listener
+output_frame_listener = {
+  .transform = output_frame_handle_transform,
+  .damage = output_frame_handle_damage,
+  .presentation_time = output_frame_handle_presentation_time,
+  .ready = output_frame_handle_ready,
+  .failed = output_frame_handle_failed,
+};
+
+static void
+wayland_output_handle_geometry (void             *data,
+                                struct wl_output *output,
+                                int32_t           x,
+                                int32_t           y,
+                                int32_t           physical_width,
+                                int32_t           physical_height,
+                                int32_t           subpixel,
+                                const char       *make,
+                                const char       *model,
+                                int32_t           transform)
+{
+  (void) data;
+  (void) output;
+  (void) x;
+  (void) y;
+  (void) physical_width;
+  (void) physical_height;
+  (void) subpixel;
+  (void) make;
+  (void) model;
+  (void) transform;
+}
+
+static void
+wayland_output_handle_mode (void             *data,
+                            struct wl_output *output,
+                            uint32_t          flags,
+                            int32_t           width,
+                            int32_t           height,
+                            int32_t           refresh)
+{
+  (void) data;
+  (void) output;
+  (void) flags;
+  (void) width;
+  (void) height;
+  (void) refresh;
+}
+
+static void
+wayland_output_handle_done (void             *data,
+                            struct wl_output *output)
+{
+  (void) data;
+  (void) output;
+}
+
+static void
+wayland_output_handle_scale (void             *data,
+                             struct wl_output *output,
+                             int32_t           factor)
+{
+  (void) data;
+  (void) output;
+  (void) factor;
+}
+
+static void
+wayland_output_handle_name (void             *data,
+                            struct wl_output *output,
+                            const char       *name)
+{
+  KasasaWaylandOutput *record = data;
+
+  (void) output;
+  g_free (record->name);
+  record->name = g_strdup (name);
+}
+
+static void
+wayland_output_handle_description (void             *data,
+                                   struct wl_output *output,
+                                   const char       *description)
+{
+  (void) data;
+  (void) output;
+  (void) description;
+}
+
+static const struct wl_output_listener output_listener = {
+  .geometry = wayland_output_handle_geometry,
+  .mode = wayland_output_handle_mode,
+  .done = wayland_output_handle_done,
+  .scale = wayland_output_handle_scale,
+  .name = wayland_output_handle_name,
+  .description = wayland_output_handle_description,
+};
+
+static void
 registry_handle_global (void               *data,
                         struct wl_registry *registry,
                         uint32_t            name,
@@ -447,6 +782,37 @@ registry_handle_global (void               *data,
                           name,
                           &hyprland_toplevel_export_manager_v1_interface,
                           bind_version);
+    }
+  else if (g_strcmp0 (interface,
+                      ext_output_image_capture_source_manager_v1_interface.name) == 0)
+    {
+      self->output_source_manager =
+        wl_registry_bind (registry,
+                          name,
+                          &ext_output_image_capture_source_manager_v1_interface,
+                          1);
+    }
+  else if (g_strcmp0 (interface,
+                      ext_image_copy_capture_manager_v1_interface.name) == 0)
+    {
+      self->capture_manager =
+        wl_registry_bind (registry,
+                          name,
+                          &ext_image_copy_capture_manager_v1_interface,
+                          1);
+    }
+  else if (self->source == KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT
+           && g_strcmp0 (interface, wl_output_interface.name) == 0)
+    {
+      KasasaWaylandOutput *output = g_new0 (KasasaWaylandOutput, 1);
+
+      output->global_name = name;
+      output->output = wl_registry_bind (registry,
+                                         name,
+                                         &wl_output_interface,
+                                         MIN (version, 4));
+      wl_output_add_listener (output->output, &output_listener, output);
+      g_ptr_array_add (self->outputs, output);
     }
 }
 
@@ -642,13 +1008,14 @@ emit_frame (KasasaHyprlandStream *self)
                   height,
                   stride,
                   format,
-                  y_invert);
+                  y_invert,
+                  self->frame_transform);
 }
 
 static gboolean
-capture_one_frame (KasasaHyprlandStream  *self,
-                   gboolean              *retryable,
-                   GError               **error)
+capture_one_window_frame (KasasaHyprlandStream  *self,
+                          gboolean              *retryable,
+                          GError               **error)
 {
   gint64 deadline;
 
@@ -737,6 +1104,206 @@ capture_one_frame (KasasaHyprlandStream  *self,
   return TRUE;
 }
 
+static KasasaWaylandOutput *
+find_wayland_output (KasasaHyprlandStream *self)
+{
+  guint i;
+
+  for (i = 0; i < self->outputs->len; i++)
+    {
+      KasasaWaylandOutput *output = g_ptr_array_index (self->outputs, i);
+
+      if (g_strcmp0 (output->name, self->output_name) == 0)
+        return output;
+    }
+
+  return NULL;
+}
+
+static gboolean
+setup_output_capture (KasasaHyprlandStream  *self,
+                      GError               **error)
+{
+  KasasaWaylandOutput *output = find_wayland_output (self);
+
+  if (output == NULL)
+    {
+      g_set_error (error,
+                   KASASA_WINDOW_QUERY_ERROR,
+                   KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
+                   _("Wayland output “%s” is unavailable"),
+                   self->output_name);
+      return FALSE;
+    }
+
+  self->capture_source =
+    ext_output_image_capture_source_manager_v1_create_source (
+      self->output_source_manager,
+      output->output);
+  if (self->capture_source == NULL)
+    return set_stream_error_literal (error,
+                                     _("Couldn't create an output capture source"));
+
+  self->capture_session =
+    ext_image_copy_capture_manager_v1_create_session (self->capture_manager,
+                                                       self->capture_source,
+                                                       EXT_IMAGE_COPY_CAPTURE_MANAGER_V1_OPTIONS_PAINT_CURSORS);
+  if (self->capture_session == NULL)
+    return set_stream_error_literal (error,
+                                     _("Couldn't create an output capture session"));
+
+  ext_image_copy_capture_session_v1_add_listener (self->capture_session,
+                                                   &output_session_listener,
+                                                   self);
+  if (!roundtrip_with_timeout (self, error))
+    return FALSE;
+
+  if (self->capture_stopped)
+    return set_stream_error_literal (error,
+                                     _("The selected monitor is no longer available"));
+  if (!self->constraints_done || !self->buffer_info_ready)
+    return set_stream_error_literal (error,
+                                     _("The compositor provided no supported monitor frame format"));
+
+  return TRUE;
+}
+
+static gboolean
+wait_for_output_constraints (KasasaHyprlandStream  *self,
+                             GError               **error)
+{
+  gint64 deadline = g_get_monotonic_time () + FRAME_STAGE_TIMEOUT_USEC;
+
+  while (!stream_stop_requested (self)
+         && !self->constraints_done
+         && !self->capture_stopped)
+    {
+      if (!dispatch_pending (self, error))
+        return FALSE;
+      if (self->constraints_done || self->capture_stopped)
+        break;
+      if (!wait_events (self,
+                        deadline,
+                        _("Timed out waiting for monitor capture constraints"),
+                        error))
+        return FALSE;
+    }
+
+  if (stream_stop_requested (self))
+    return FALSE;
+  if (self->capture_stopped)
+    return set_stream_error_literal (error,
+                                     _("The selected monitor is no longer available"));
+  if (!self->constraints_done)
+    return set_stream_error_literal (error,
+                                     _("Monitor capture buffer constraints are unavailable"));
+
+  return TRUE;
+}
+
+static gboolean
+capture_one_output_frame (KasasaHyprlandStream  *self,
+                          gboolean              *retryable,
+                          GError               **error)
+{
+  gint64 deadline;
+
+  if (retryable != NULL)
+    *retryable = FALSE;
+
+  stream_clear_frame (self);
+  if (self->capture_stopped)
+    return set_stream_error_literal (error,
+                                     _("The selected monitor is no longer available"));
+  if (!self->constraints_done
+      && !wait_for_output_constraints (self, error))
+    return FALSE;
+  if (!self->buffer_info_ready)
+    return set_stream_error_literal (error,
+                                     _("Monitor capture buffer constraints are unavailable"));
+  if (!ensure_shm_buffer (self))
+    return set_stream_error_literal (error,
+                                     _("Couldn't allocate a monitor frame buffer"));
+
+  self->output_frame =
+    ext_image_copy_capture_session_v1_create_frame (self->capture_session);
+  if (self->output_frame == NULL)
+    return set_stream_error_literal (error,
+                                     _("Couldn't request a monitor frame"));
+
+  ext_image_copy_capture_frame_v1_add_listener (self->output_frame,
+                                                 &output_frame_listener,
+                                                 self);
+  ext_image_copy_capture_frame_v1_attach_buffer (self->output_frame,
+                                                  self->buffer);
+  ext_image_copy_capture_frame_v1_damage_buffer (
+    self->output_frame,
+    0,
+    0,
+    (int32_t) self->buffer_width,
+    (int32_t) self->buffer_height);
+  ext_image_copy_capture_frame_v1_capture (self->output_frame);
+
+  /* The first frame must arrive immediately. Later frames are damage-driven
+   * and may legitimately wait while the output is static. */
+  deadline = self->has_emitted_frame
+             ? G_MAXINT64
+             : g_get_monotonic_time () + FRAME_STAGE_TIMEOUT_USEC;
+  while (!stream_stop_requested (self)
+         && !self->frame_ready
+         && !self->frame_failed
+         && !self->capture_stopped)
+    {
+      if (!dispatch_pending (self, error))
+        return FALSE;
+      if (self->frame_ready || self->frame_failed || self->capture_stopped)
+        break;
+      if (!wait_events (self,
+                        deadline,
+                        _("Timed out waiting for a monitor frame"),
+                        error))
+        return FALSE;
+    }
+
+  if (stream_stop_requested (self))
+    return FALSE;
+  if (self->capture_stopped
+      || self->failure_reason
+         == EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_STOPPED)
+    return set_stream_error_literal (error,
+                                     _("The selected monitor is no longer available"));
+  if (self->frame_failed)
+    {
+      if (retryable != NULL)
+        *retryable = TRUE;
+      if (self->failure_reason
+          == EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS)
+        return set_stream_error_literal (error,
+                                         _("Monitor capture constraints changed"));
+      return set_stream_error_literal (error,
+                                       _("The compositor failed to capture the monitor"));
+    }
+  if (!self->frame_ready)
+    return set_stream_error_literal (error,
+                                     _("The compositor did not complete the monitor frame"));
+
+  emit_frame (self);
+  self->has_emitted_frame = TRUE;
+  stream_clear_frame (self);
+  return TRUE;
+}
+
+static gboolean
+capture_one_frame (KasasaHyprlandStream  *self,
+                   gboolean              *retryable,
+                   GError               **error)
+{
+  if (self->source == KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT)
+    return capture_one_output_frame (self, retryable, error);
+
+  return capture_one_window_frame (self, retryable, error);
+}
+
 static gpointer
 stream_thread_func (gpointer data)
 {
@@ -764,11 +1331,30 @@ stream_thread_func (gpointer data)
   if (!roundtrip_with_timeout (self, &stream_error))
     goto out;
 
-  if (self->shm == NULL || self->export_manager == NULL)
+  if (self->source == KASASA_HYPRLAND_STREAM_SOURCE_WINDOW)
     {
-      set_stream_error_literal (&stream_error,
-                                _("Hyprland's window capture protocol is unavailable"));
-      goto out;
+      if (self->shm == NULL || self->export_manager == NULL)
+        {
+          set_stream_error_literal (&stream_error,
+                                    _("Hyprland's window capture protocol is unavailable"));
+          goto out;
+        }
+    }
+  else
+    {
+      if (self->shm == NULL || self->output_source_manager == NULL
+          || self->capture_manager == NULL)
+        {
+          set_stream_error_literal (&stream_error,
+                                    _("Hyprland's monitor capture protocol is unavailable"));
+          goto out;
+        }
+
+      /* wl_output names are emitted by objects bound while processing the
+       * first registry roundtrip, so collect their events in a second one. */
+      if (!roundtrip_with_timeout (self, &stream_error)
+          || !setup_output_capture (self, &stream_error))
+        goto out;
     }
 
   if (!capture_one_frame (self, NULL, &stream_error))
@@ -806,6 +1392,27 @@ stream_thread_func (gpointer data)
 out:
   stream_clear_frame (self);
   stream_clear_buffer (self);
+  if (self->capture_session != NULL)
+    {
+      ext_image_copy_capture_session_v1_destroy (self->capture_session);
+      self->capture_session = NULL;
+    }
+  if (self->capture_source != NULL)
+    {
+      ext_image_capture_source_v1_destroy (self->capture_source);
+      self->capture_source = NULL;
+    }
+  if (self->capture_manager != NULL)
+    {
+      ext_image_copy_capture_manager_v1_destroy (self->capture_manager);
+      self->capture_manager = NULL;
+    }
+  if (self->output_source_manager != NULL)
+    {
+      ext_output_image_capture_source_manager_v1_destroy (
+        self->output_source_manager);
+      self->output_source_manager = NULL;
+    }
   if (self->export_manager != NULL)
     {
       hyprland_toplevel_export_manager_v1_destroy (self->export_manager);
@@ -816,6 +1423,7 @@ out:
       wl_shm_destroy (self->shm);
       self->shm = NULL;
     }
+  g_clear_pointer (&self->outputs, g_ptr_array_unref);
   if (self->registry != NULL)
     {
       wl_registry_destroy (self->registry);
@@ -831,20 +1439,24 @@ out:
     {
       if (stream_error == NULL)
         set_stream_error_literal (&stream_error,
-                                  _("Couldn't start Hyprland window capture"));
+                                  self->source == KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT
+                                  ? _("Couldn't start Hyprland monitor capture")
+                                  : _("Couldn't start Hyprland window capture"));
       self->error_cb (self->user_data, stream_error);
     }
 
   return NULL;
 }
 
-KasasaHyprlandStream *
-kasasa_hyprland_stream_start (guint32                       handle,
-                              KasasaHyprlandStreamFrameFunc  frame_cb,
-                              KasasaHyprlandStreamErrorFunc  error_cb,
-                              gpointer                      user_data,
-                              GDestroyNotify                user_data_destroy,
-                              GError                      **error)
+static KasasaHyprlandStream *
+start_stream (KasasaHyprlandStreamSource    source,
+              guint32                       handle,
+              const gchar                  *output_name,
+              KasasaHyprlandStreamFrameFunc frame_cb,
+              KasasaHyprlandStreamErrorFunc error_cb,
+              gpointer                      user_data,
+              GDestroyNotify                user_data_destroy,
+              GError                      **error)
 {
   KasasaHyprlandStream *self;
   g_autoptr (GError) thread_error = NULL;
@@ -862,12 +1474,16 @@ kasasa_hyprland_stream_start (guint32                       handle,
     }
 
   self = g_new0 (KasasaHyprlandStream, 1);
+  self->source = source;
   self->handle = handle;
+  self->output_name = g_strdup (output_name);
   self->frame_cb = frame_cb;
   self->error_cb = error_cb;
   self->user_data = user_data;
   self->user_data_destroy = user_data_destroy;
   self->buffer_fd = -1;
+  self->outputs = g_ptr_array_new_with_free_func (
+    (GDestroyNotify) wayland_output_free);
 
   self->thread = g_thread_try_new ("kasasa-hypr-stream",
                                    stream_thread_func,
@@ -887,6 +1503,45 @@ kasasa_hyprland_stream_start (guint32                       handle,
   return self;
 }
 
+KasasaHyprlandStream *
+kasasa_hyprland_stream_start (guint32                       handle,
+                              KasasaHyprlandStreamFrameFunc  frame_cb,
+                              KasasaHyprlandStreamErrorFunc  error_cb,
+                              gpointer                      user_data,
+                              GDestroyNotify                user_data_destroy,
+                              GError                      **error)
+{
+  return start_stream (KASASA_HYPRLAND_STREAM_SOURCE_WINDOW,
+                       handle,
+                       NULL,
+                       frame_cb,
+                       error_cb,
+                       user_data,
+                       user_data_destroy,
+                       error);
+}
+
+KasasaHyprlandStream *
+kasasa_hyprland_stream_start_output (
+  const gchar                   *name,
+  KasasaHyprlandStreamFrameFunc  frame_cb,
+  KasasaHyprlandStreamErrorFunc  error_cb,
+  gpointer                      user_data,
+  GDestroyNotify                user_data_destroy,
+  GError                      **error)
+{
+  g_return_val_if_fail (name != NULL && *name != '\0', NULL);
+
+  return start_stream (KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT,
+                       0,
+                       name,
+                       frame_cb,
+                       error_cb,
+                       user_data,
+                       user_data_destroy,
+                       error);
+}
+
 void
 kasasa_hyprland_stream_stop (KasasaHyprlandStream *self)
 {
@@ -904,5 +1559,8 @@ kasasa_hyprland_stream_stop (KasasaHyprlandStream *self)
   if (self->user_data_destroy != NULL && self->user_data != NULL)
     self->user_data_destroy (self->user_data);
 
+  g_free (self->output_name);
+  if (self->outputs != NULL)
+    g_ptr_array_unref (self->outputs);
   g_free (self);
 }

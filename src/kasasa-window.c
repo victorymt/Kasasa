@@ -139,6 +139,21 @@ kasasa_window_load_first_hyprland_screencast (KasasaWindow *self,
 }
 
 void
+kasasa_window_load_first_hyprland_monitor_screencast (KasasaWindow *self,
+                                                      const gchar  *monitor_name,
+                                                      gint          width,
+                                                      gint          height)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+  g_return_if_fail (monitor_name != NULL && *monitor_name != '\0');
+  kasasa_content_container_load_first_hyprland_monitor_screencast (
+    self->content_container,
+    monitor_name,
+    width,
+    height);
+}
+
+void
 kasasa_window_cancel_delayed_screenshot (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));

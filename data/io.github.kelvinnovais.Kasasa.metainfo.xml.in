@@ -36,7 +36,7 @@
     <!-- translators: do not include the tags <code></code> -->
     <p>
       On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts.
-      There you can set a shortcut to run <code>flatpak run io.github.kelvinnovais.Kasasa</code>
+      There you can set a shortcut to run <code>kasasa</code>
     </p>
     <!-- translators: replace "&lt;" with < and "&apos;" with ' -->
     <p>

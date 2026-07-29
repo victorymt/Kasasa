@@ -145,6 +145,39 @@ kasasa_window_client_list_free (GPtrArray *clients)
   g_ptr_array_free (clients, TRUE);
 }
 
+void
+kasasa_monitor_free (KasasaMonitor *monitor)
+{
+  if (monitor == NULL)
+    return;
+
+  g_free (monitor->name);
+  g_free (monitor->description);
+  g_free (monitor);
+}
+
+void
+kasasa_monitor_list_free (GPtrArray *monitors)
+{
+  if (monitors != NULL)
+    g_ptr_array_free (monitors, TRUE);
+}
+
+static KasasaMonitor *
+monitor_copy (const KasasaMonitor *src)
+{
+  KasasaMonitor *copy;
+
+  if (src == NULL)
+    return NULL;
+
+  copy = g_new0 (KasasaMonitor, 1);
+  *copy = *src;
+  copy->name = g_strdup (src->name);
+  copy->description = g_strdup (src->description);
+  return copy;
+}
+
 static KasasaWindowClient *
 client_copy (const KasasaWindowClient *src)
 {
@@ -306,6 +339,70 @@ kasasa_window_query_parse_active_json (const gchar *json,
   return client;
 }
 
+GPtrArray *
+kasasa_monitor_query_parse_json (const gchar *json,
+                                 GError     **error)
+{
+  g_autoptr (JsonParser) parser = json_parser_new ();
+  JsonNode *root;
+  JsonArray *array;
+  GPtrArray *monitors;
+  guint i;
+
+  g_return_val_if_fail (json != NULL, NULL);
+
+  if (!json_parser_load_from_data (parser, json, -1, error))
+    return NULL;
+
+  root = json_parser_get_root (parser);
+  if (root == NULL || !JSON_NODE_HOLDS_ARRAY (root))
+    {
+      g_set_error_literal (error,
+                           KASASA_WINDOW_QUERY_ERROR,
+                           KASASA_WINDOW_QUERY_ERROR_FAILED,
+                           _("Unexpected hyprctl monitors JSON"));
+      return NULL;
+    }
+
+  array = json_node_get_array (root);
+  monitors = g_ptr_array_new_with_free_func ((GDestroyNotify) kasasa_monitor_free);
+
+  for (i = 0; i < json_array_get_length (array); i++)
+    {
+      JsonNode *node = json_array_get_element (array, i);
+      JsonObject *object;
+      KasasaMonitor *monitor;
+
+      if (!JSON_NODE_HOLDS_OBJECT (node))
+        continue;
+
+      object = json_node_get_object (node);
+      monitor = g_new0 (KasasaMonitor, 1);
+      monitor->id = json_object_get_int_member_with_default (object, "id", -1);
+      monitor->name = g_strdup (
+        json_object_get_string_member_with_default (object, "name", ""));
+      monitor->description = g_strdup (
+        json_object_get_string_member_with_default (object, "description", ""));
+      monitor->width = json_object_get_int_member_with_default (object, "width", 0);
+      monitor->height = json_object_get_int_member_with_default (object, "height", 0);
+      monitor->scale = json_object_get_double_member_with_default (object, "scale", 1.0);
+      monitor->transform = json_object_get_int_member_with_default (object, "transform", 0);
+      monitor->focused = json_object_get_boolean_member_with_default (object,
+                                                                      "focused",
+                                                                      FALSE);
+
+      if (monitor->name[0] == '\0' || monitor->width <= 0 || monitor->height <= 0)
+        {
+          kasasa_monitor_free (monitor);
+          continue;
+        }
+
+      g_ptr_array_add (monitors, monitor);
+    }
+
+  return monitors;
+}
+
 static gchar *
 run_hyprctl (const gchar *const *argv,
              GError            **error)
@@ -412,6 +509,94 @@ kasasa_window_query_get_active (GError **error)
     }
 
   return kasasa_window_query_parse_active_json (json, error);
+}
+
+GPtrArray *
+kasasa_monitor_query_list (GError **error)
+{
+  g_autofree gchar *json = NULL;
+  const gchar *argv[] = { "hyprctl", "-j", "monitors", NULL };
+
+  if (!kasasa_window_query_backend_available ())
+    {
+      g_set_error_literal (error,
+                           KASASA_WINDOW_QUERY_ERROR,
+                           KASASA_WINDOW_QUERY_ERROR_UNAVAILABLE,
+                           _("Hyprland monitor listing requires hyprctl"));
+      return NULL;
+    }
+
+  json = run_hyprctl (argv, error);
+  if (json == NULL)
+    {
+      wrap_hyprctl_error (error);
+      return NULL;
+    }
+
+  return kasasa_monitor_query_parse_json (json, error);
+}
+
+KasasaMonitor *
+kasasa_monitor_query_resolve (GPtrArray   *monitors,
+                              const gchar *spec,
+                              GError     **error)
+{
+  guint i;
+
+  g_return_val_if_fail (monitors != NULL, NULL);
+
+  if (spec == NULL || *spec == '\0')
+    {
+      g_set_error_literal (error,
+                           KASASA_WINDOW_QUERY_ERROR,
+                           KASASA_WINDOW_QUERY_ERROR_FAILED,
+                           _("Monitor specifier is empty"));
+      return NULL;
+    }
+
+  if (g_strcmp0 (spec, "active") == 0)
+    {
+      for (i = 0; i < monitors->len; i++)
+        {
+          KasasaMonitor *monitor = g_ptr_array_index (monitors, i);
+
+          if (monitor->focused)
+            return monitor_copy (monitor);
+        }
+
+      g_set_error_literal (error,
+                           KASASA_WINDOW_QUERY_ERROR,
+                           KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
+                           _("No active monitor"));
+      return NULL;
+    }
+
+  for (i = 0; i < monitors->len; i++)
+    {
+      KasasaMonitor *monitor = g_ptr_array_index (monitors, i);
+
+      if (g_strcmp0 (monitor->name, spec) == 0)
+        return monitor_copy (monitor);
+    }
+
+  g_set_error (error,
+               KASASA_WINDOW_QUERY_ERROR,
+               KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
+               _("No monitor named “%s”"),
+               spec);
+  return NULL;
+}
+
+KasasaMonitor *
+kasasa_monitor_query_resolve_live (const gchar *spec,
+                                   GError     **error)
+{
+  g_autoptr (GPtrArray) monitors = kasasa_monitor_query_list (error);
+
+  if (monitors == NULL)
+    return NULL;
+
+  return kasasa_monitor_query_resolve (monitors, spec, error);
 }
 
 static gboolean
@@ -706,4 +891,78 @@ kasasa_window_query_format_candidates (GPtrArray *clients)
     }
 
   return g_string_free (out, FALSE);
+}
+
+gchar *
+kasasa_monitor_query_format_table (GPtrArray *monitors)
+{
+  GString *out;
+  guint i;
+
+  g_return_val_if_fail (monitors != NULL, NULL);
+
+  out = g_string_new (NULL);
+  g_string_append_printf (out,
+                          "%-12s  %-11s  %-7s  %s\n",
+                          "NAME", "SIZE", "SCALE", "DESCRIPTION");
+
+  for (i = 0; i < monitors->len; i++)
+    {
+      KasasaMonitor *monitor = g_ptr_array_index (monitors, i);
+      g_autofree gchar *size = g_strdup_printf ("%dx%d",
+                                                monitor->width,
+                                                monitor->height);
+
+      g_string_append_printf (out,
+                              "%-12s  %-11s  %-7.2f  %s%s\n",
+                              monitor->name,
+                              size,
+                              monitor->scale,
+                              monitor->description,
+                              monitor->focused ? " *" : "");
+    }
+
+  return g_string_free (out, FALSE);
+}
+
+gchar *
+kasasa_monitor_query_format_json (GPtrArray *monitors)
+{
+  g_autoptr (JsonBuilder) builder = json_builder_new ();
+  g_autoptr (JsonGenerator) generator = json_generator_new ();
+  g_autoptr (JsonNode) root = NULL;
+  guint i;
+
+  g_return_val_if_fail (monitors != NULL, NULL);
+
+  json_builder_begin_array (builder);
+  for (i = 0; i < monitors->len; i++)
+    {
+      KasasaMonitor *monitor = g_ptr_array_index (monitors, i);
+
+      json_builder_begin_object (builder);
+      json_builder_set_member_name (builder, "id");
+      json_builder_add_int_value (builder, monitor->id);
+      json_builder_set_member_name (builder, "name");
+      json_builder_add_string_value (builder, monitor->name);
+      json_builder_set_member_name (builder, "description");
+      json_builder_add_string_value (builder, monitor->description);
+      json_builder_set_member_name (builder, "width");
+      json_builder_add_int_value (builder, monitor->width);
+      json_builder_set_member_name (builder, "height");
+      json_builder_add_int_value (builder, monitor->height);
+      json_builder_set_member_name (builder, "scale");
+      json_builder_add_double_value (builder, monitor->scale);
+      json_builder_set_member_name (builder, "transform");
+      json_builder_add_int_value (builder, monitor->transform);
+      json_builder_set_member_name (builder, "focused");
+      json_builder_add_boolean_value (builder, monitor->focused);
+      json_builder_end_object (builder);
+    }
+  json_builder_end_array (builder);
+
+  root = json_builder_get_root (builder);
+  json_generator_set_root (generator, root);
+  json_generator_set_pretty (generator, TRUE);
+  return json_generator_to_data (generator, NULL);
 }

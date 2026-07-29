@@ -109,6 +109,12 @@ void kasasa_content_container_load_first_hyprland_screencast (KasasaContentConta
                                                               guint32                 window_handle,
                                                               gint                    width,
                                                               gint                    height);
+/* Pin a live Hyprland monitor by wl_output name (no Portal). */
+void kasasa_content_container_load_first_hyprland_monitor_screencast (
+  KasasaContentContainer *cc,
+  const gchar            *monitor_name,
+  gint                    width,
+  gint                    height);
 gboolean kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_window_resize (KasasaContentContainer *cc);
 gboolean kasasa_content_container_request_zoom_resize (KasasaContentContainer *cc,

@@ -66,6 +66,18 @@ typedef struct
   gboolean floating;
 } KasasaWindowClient;
 
+typedef struct
+{
+  gint id;
+  gchar *name;
+  gchar *description;
+  gint width;
+  gint height;
+  gdouble scale;
+  gint transform;
+  gboolean focused;
+} KasasaMonitor;
+
 void kasasa_window_spec_clear (KasasaWindowSpec *spec);
 gboolean kasasa_window_spec_parse (const gchar      *text,
                                    KasasaWindowSpec *spec,
@@ -75,6 +87,11 @@ void kasasa_window_client_free (KasasaWindowClient *client);
 void kasasa_window_client_list_free (GPtrArray *clients);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (KasasaWindowClient, kasasa_window_client_free)
+
+void kasasa_monitor_free (KasasaMonitor *monitor);
+void kasasa_monitor_list_free (GPtrArray *monitors);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (KasasaMonitor, kasasa_monitor_free)
 
 /* Parse hyprctl clients -j JSON into KasasaWindowClient objects. */
 GPtrArray *kasasa_window_query_parse_clients_json (const gchar *json,
@@ -88,6 +105,18 @@ gboolean kasasa_window_query_backend_available (void);
 
 GPtrArray *kasasa_window_query_list_clients (GError **error);
 KasasaWindowClient *kasasa_window_query_get_active (GError **error);
+
+/* Parse and query `hyprctl -j monitors` output. */
+GPtrArray *kasasa_monitor_query_parse_json (const gchar *json,
+                                            GError     **error);
+GPtrArray *kasasa_monitor_query_list (GError **error);
+KasasaMonitor *kasasa_monitor_query_resolve (GPtrArray   *monitors,
+                                             const gchar *spec,
+                                             GError     **error);
+KasasaMonitor *kasasa_monitor_query_resolve_live (const gchar *spec,
+                                                  GError     **error);
+gchar *kasasa_monitor_query_format_table (GPtrArray *monitors);
+gchar *kasasa_monitor_query_format_json (GPtrArray *monitors);
 
 /*
  * Resolve a SPEC against a client list.

@@ -24,6 +24,7 @@
 #include <glib/gi18n.h>
 #include <string.h>
 #include <unistd.h>
+#include <wayland-client-protocol.h>
 
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-screencast.h"
@@ -730,7 +731,8 @@ on_hypr_stream_frame (gpointer                     user_data,
                       gint                         height,
                       gint                         stride,
                       KasasaHyprlandStreamFormat   format,
-                      gboolean                     y_invert)
+                      gboolean                     y_invert,
+                      guint32                      transform)
 {
   KasasaScreencast *self = user_data;
   GstBuffer *buffer;
@@ -741,6 +743,9 @@ on_hypr_stream_frame (gpointer                     user_data,
   const gchar *format_name;
   gsize row_size;
   gsize size;
+  gint output_width;
+  gint output_height;
+  gint x;
   gint y;
 
   if (self == NULL || self->appsrc == NULL || data == NULL
@@ -756,27 +761,47 @@ on_hypr_stream_frame (gpointer                     user_data,
   if (format_name == NULL)
     return;
 
-  if (self->stream_width != width
-      || self->stream_height != height
+  if (transform > WL_OUTPUT_TRANSFORM_FLIPPED_270)
+    transform = WL_OUTPUT_TRANSFORM_NORMAL;
+  if (transform == WL_OUTPUT_TRANSFORM_90
+      || transform == WL_OUTPUT_TRANSFORM_270
+      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_90
+      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+    {
+      output_width = height;
+      output_height = width;
+    }
+  else
+    {
+      output_width = width;
+      output_height = height;
+    }
+
+  if (self->stream_width != output_width
+      || self->stream_height != output_height
       || self->stream_format != format)
     {
-      self->stream_width = width;
-      self->stream_height = height;
+      self->stream_width = output_width;
+      self->stream_height = output_height;
       self->stream_format = format;
       caps = gst_caps_new_simple ("video/x-raw",
                                   "format", G_TYPE_STRING, format_name,
-                                  "width", G_TYPE_INT, width,
-                                  "height", G_TYPE_INT, height,
+                                  "width", G_TYPE_INT, output_width,
+                                  "height", G_TYPE_INT, output_height,
                                   "framerate", GST_TYPE_FRACTION, 30, 1,
                                   NULL);
       gst_app_src_set_caps (GST_APP_SRC (self->appsrc), caps);
       if (!configure_frame_pool (self, caps,
-                                 (gsize) width * 4 * (gsize) height))
+                                 (gsize) output_width * 4
+                                 * (gsize) output_height))
         g_warning ("Unable to configure the Hyprland frame buffer pool");
-      queue_stream_size_update (self, width, height);
+      queue_stream_size_update (self, output_width, output_height);
     }
 
-  size = row_size * (gsize) height;
+  row_size = (gsize) output_width * 4;
+  if ((gsize) output_height > G_MAXSIZE / row_size)
+    return;
+  size = row_size * (gsize) output_height;
   buffer = NULL;
   if (self->frame_pool != NULL)
     {
@@ -795,12 +820,70 @@ on_hypr_stream_frame (gpointer                     user_data,
       return;
     }
 
-  for (y = 0; y < height; y++)
+  if (transform == WL_OUTPUT_TRANSFORM_NORMAL)
     {
-      gint source_y = y_invert ? height - 1 - y : y;
-      memcpy (map.data + (gsize) y * row_size,
-              data + (gsize) source_y * (gsize) stride,
-              row_size);
+      for (y = 0; y < height; y++)
+        {
+          gint source_y = y_invert ? height - 1 - y : y;
+          memcpy (map.data + (gsize) y * row_size,
+                  data + (gsize) source_y * (gsize) stride,
+                  row_size);
+        }
+    }
+  else
+    {
+      for (y = 0; y < output_height; y++)
+        {
+          for (x = 0; x < output_width; x++)
+            {
+              gint source_x;
+              gint source_y;
+
+              switch (transform)
+                {
+                case WL_OUTPUT_TRANSFORM_90:
+                  source_x = width - 1 - y;
+                  source_y = x;
+                  break;
+                case WL_OUTPUT_TRANSFORM_180:
+                  source_x = width - 1 - x;
+                  source_y = height - 1 - y;
+                  break;
+                case WL_OUTPUT_TRANSFORM_270:
+                  source_x = y;
+                  source_y = height - 1 - x;
+                  break;
+                case WL_OUTPUT_TRANSFORM_FLIPPED:
+                  source_x = width - 1 - x;
+                  source_y = y;
+                  break;
+                case WL_OUTPUT_TRANSFORM_FLIPPED_90:
+                  source_x = y;
+                  source_y = x;
+                  break;
+                case WL_OUTPUT_TRANSFORM_FLIPPED_180:
+                  source_x = x;
+                  source_y = height - 1 - y;
+                  break;
+                case WL_OUTPUT_TRANSFORM_FLIPPED_270:
+                  source_x = width - 1 - y;
+                  source_y = height - 1 - x;
+                  break;
+                case WL_OUTPUT_TRANSFORM_NORMAL:
+                default:
+                  source_x = x;
+                  source_y = y;
+                  break;
+                }
+
+              if (y_invert)
+                source_y = height - 1 - source_y;
+              memcpy (map.data + (gsize) y * row_size + (gsize) x * 4,
+                      data + (gsize) source_y * (gsize) stride
+                           + (gsize) source_x * 4,
+                      4);
+            }
+        }
     }
   gst_buffer_unmap (buffer, &map);
 
@@ -810,12 +893,13 @@ on_hypr_stream_frame (gpointer                     user_data,
     g_debug ("appsrc push returned %s", gst_flow_get_name (ret));
 }
 
-gboolean
-kasasa_screencast_show_hyprland (KasasaScreencast *self,
-                                 guint32           window_handle,
-                                 gint              expected_width,
-                                 gint              expected_height,
-                                 GError          **error)
+static gboolean
+show_hyprland_source (KasasaScreencast *self,
+                      guint32           window_handle,
+                      const gchar      *output_name,
+                      gint              expected_width,
+                      gint              expected_height,
+                      GError          **error)
 {
   GstElement *appsrc = NULL;
   GstElement *gtksink = NULL;
@@ -889,7 +973,8 @@ kasasa_screencast_show_hyprland (KasasaScreencast *self,
                 NULL);
   g_object_set (gtksink, "sync", FALSE, NULL);
 
-  g_info ("Screencast pipeline uses Hyprland toplevel-export appsrc path");
+  g_info ("Screencast pipeline uses Hyprland native %s appsrc path",
+          output_name != NULL ? "monitor" : "window");
 
   gst_bin_add_many (GST_BIN (self->pipeline),
                     appsrc, display_queue, gtksink,
@@ -926,12 +1011,21 @@ kasasa_screencast_show_hyprland (KasasaScreencast *self,
     }
 
   self->appsrc = gst_object_ref (appsrc);
-  self->hypr_stream = kasasa_hyprland_stream_start (window_handle,
-                                                    on_hypr_stream_frame,
-                                                    on_hypr_stream_error,
-                                                    self,
-                                                    NULL,
-                                                    &stream_error);
+  if (output_name != NULL)
+    self->hypr_stream = kasasa_hyprland_stream_start_output (
+      output_name,
+      on_hypr_stream_frame,
+      on_hypr_stream_error,
+      self,
+      NULL,
+      &stream_error);
+  else
+    self->hypr_stream = kasasa_hyprland_stream_start (window_handle,
+                                                      on_hypr_stream_frame,
+                                                      on_hypr_stream_error,
+                                                      self,
+                                                      NULL,
+                                                      &stream_error);
   if (self->hypr_stream == NULL)
     {
       if (stream_error != NULL)
@@ -939,7 +1033,9 @@ kasasa_screencast_show_hyprland (KasasaScreencast *self,
       else
         set_screencast_error (error,
                               G_IO_ERROR_FAILED,
-                              _("Couldn't start Hyprland window capture"));
+                              output_name != NULL
+                              ? _("Couldn't start Hyprland monitor capture")
+                              : _("Couldn't start Hyprland window capture"));
       return FALSE;
     }
 
@@ -955,6 +1051,38 @@ ELEMENT_ERROR:
   return set_screencast_error (error,
                                G_IO_ERROR_NOT_SUPPORTED,
                                _("Required GStreamer plugins are unavailable"));
+}
+
+gboolean
+kasasa_screencast_show_hyprland (KasasaScreencast *self,
+                                 guint32           window_handle,
+                                 gint              expected_width,
+                                 gint              expected_height,
+                                 GError          **error)
+{
+  return show_hyprland_source (self,
+                               window_handle,
+                               NULL,
+                               expected_width,
+                               expected_height,
+                               error);
+}
+
+gboolean
+kasasa_screencast_show_hyprland_output (KasasaScreencast *self,
+                                        const gchar      *output_name,
+                                        gint              expected_width,
+                                        gint              expected_height,
+                                        GError          **error)
+{
+  g_return_val_if_fail (output_name != NULL && *output_name != '\0', FALSE);
+
+  return show_hyprland_source (self,
+                               0,
+                               output_name,
+                               expected_width,
+                               expected_height,
+                               error);
 }
 
 static void

@@ -4,6 +4,3 @@ repo
 test
 kasasa_debug
 kasasa_debug.sh
-.flatpak-builder
-
-io.github.kelvinnovais.Kasasa.json~
