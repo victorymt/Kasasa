@@ -181,6 +181,22 @@
                 </child>
               </object>
             </child>
+            <child>
+              <object class="AdwSpinRow" id="screencast_framerate_spin_row">
+                <property name="title" translatable="yes">Frame rate limit (FPS)</property>
+                <property name="subtitle" translatable="yes">Applies to newly started screencasts</property>
+                <property name="digits">0</property>
+                <property name="adjustment">
+                  <object class="GtkAdjustment" id="screencast_framerate_adjustment">
+                    <property name="lower">1</property>
+                    <property name="upper">120</property>
+                    <property name="step-increment">1</property>
+                    <property name="page-increment">10</property>
+                    <property name="value">30</property>
+                  </object>
+                </property>
+              </object>
+            </child>
           </object>
         </child>
 

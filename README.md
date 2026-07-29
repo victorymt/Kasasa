@@ -82,9 +82,11 @@ monitor through Wayland's native image-copy-capture protocol without opening
 the Portal picker. The regular **Screencast** action remains Portal-based, so
 it can still interactively select a screen or a window.
 
-- Portal previews are synchronized and capped at 30 FPS to keep CPU usage
-  predictable. Kasasa prefers the GPU-accelerated GL pipeline when it is
-  available and falls back to CPU rendering when necessary.
+- Live previews default to a 30 FPS limit. Choose any limit from 1 to 120 FPS
+  under **Preferences → Screencast → Frame rate limit**; the new value applies
+  when the next screencast starts, for both Portal and Hyprland-native capture.
+  Kasasa prefers the GPU-accelerated GL pipeline when it is available and
+  falls back to CPU rendering when necessary.
 - Capturing a screen that also contains the Kasasa window creates a recursive
   preview and requires extra rendering work. Select a window, or move Kasasa
   off the captured screen, when recursion is not wanted.

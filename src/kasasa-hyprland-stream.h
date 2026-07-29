@@ -61,21 +61,25 @@ gboolean kasasa_hyprland_stream_handle_from_address (const gchar *address,
 gboolean kasasa_hyprland_stream_available (void);
 
 /*
- * Start continuous capture of the window identified by handle.
+ * Start continuous capture of the window identified by handle, capped at
+ * frame_rate frames per second.
  * The function returns after the worker thread is created. Wayland connection
  * and first-frame failures are reported through error_cb. frame_cb and
  * error_cb are invoked from the worker thread.
  */
 KasasaHyprlandStream *kasasa_hyprland_stream_start (guint32                       handle,
+                                                    guint                         frame_rate,
                                                     KasasaHyprlandStreamFrameFunc  frame_cb,
                                                     KasasaHyprlandStreamErrorFunc  error_cb,
                                                     gpointer                      user_data,
                                                     GDestroyNotify                user_data_destroy,
                                                     GError                      **error);
 
-/* Start native capture of the wl_output whose compositor name matches NAME. */
+/* Start native capture of the wl_output whose compositor name matches NAME,
+ * capped at frame_rate frames per second. */
 KasasaHyprlandStream *kasasa_hyprland_stream_start_output (
   const gchar                   *name,
+  guint                          frame_rate,
   KasasaHyprlandStreamFrameFunc  frame_cb,
   KasasaHyprlandStreamErrorFunc  error_cb,
   gpointer                      user_data,

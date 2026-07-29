@@ -33,6 +33,8 @@
 // Default dimensions
 #define DEFAULT_WIDTH  360
 #define DEFAULT_HEIGHT 200
+#define DEFAULT_SCREENCAST_FRAME_RATE 30U
+#define MAX_SCREENCAST_FRAME_RATE     120U
 
 enum
 {
@@ -78,6 +80,7 @@ struct _KasasaScreencast
   gint                     dimension[DIMENSION_N_ELEMENTS];
   gint                     stream_width;
   gint                     stream_height;
+  guint                    frame_rate;
   KasasaHyprlandStreamFormat stream_format;
 };
 
@@ -114,6 +117,34 @@ get_screencast_pipeline_preference (void)
 
   settings = g_settings_new_full (schema, NULL, NULL);
   return g_settings_get_string (settings, "screencast-pipeline");
+}
+
+static guint
+get_screencast_frame_rate (void)
+{
+  GSettingsSchemaSource *schema_source;
+  g_autoptr (GSettingsSchema) schema = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  guint frame_rate;
+
+  schema_source = g_settings_schema_source_get_default ();
+  if (schema_source != NULL)
+    schema = g_settings_schema_source_lookup (
+      schema_source,
+      "io.github.kelvinnovais.Kasasa",
+      TRUE);
+
+  if (schema == NULL
+      || !g_settings_schema_has_key (schema, "screencast-framerate"))
+    {
+      g_message ("The installed settings schema has no screencast-framerate "
+                 "key; using 30 FPS");
+      return DEFAULT_SCREENCAST_FRAME_RATE;
+    }
+
+  settings = g_settings_new_full (schema, NULL, NULL);
+  frame_rate = g_settings_get_uint (settings, "screencast-framerate");
+  return CLAMP (frame_rate, 1U, MAX_SCREENCAST_FRAME_RATE);
 }
 
 static void
@@ -516,6 +547,7 @@ activate_portal_pipeline (KasasaScreencast             *self,
   if (!kasasa_screencast_pipeline_build_portal (fd,
                                                 node_id,
                                                 mode,
+                                                self->frame_rate,
                                                 &pipeline,
                                                 error))
     return FALSE;
@@ -565,10 +597,11 @@ activate_portal_pipeline (KasasaScreencast             *self,
 
   gtk_picture_set_paintable (self->picture, pipeline.paintable);
   kasasa_screencast_pipeline_clear (&pipeline);
-  g_info ("Screencast pipeline uses %s path",
+  g_info ("Screencast pipeline uses %s path at up to %u FPS",
           mode == KASASA_SCREENCAST_PIPELINE_GPU
           ? "DMA-BUF/GL display without CPU analysis"
-          : "system-memory fallback");
+          : "system-memory fallback",
+          self->frame_rate);
 
   return TRUE;
 }
@@ -656,6 +689,7 @@ kasasa_screencast_show (KasasaScreencast *self,
   self->portal_node_id = node_id;
   self->gpu_fallback_attempted = FALSE;
   self->cpu_fallback_notified = FALSE;
+  self->frame_rate = get_screencast_frame_rate ();
 
   if (expected_width > 0 && expected_height > 0)
     new_dimension (self, expected_width, expected_height);
@@ -788,7 +822,8 @@ on_hypr_stream_frame (gpointer                     user_data,
                                   "format", G_TYPE_STRING, format_name,
                                   "width", G_TYPE_INT, output_width,
                                   "height", G_TYPE_INT, output_height,
-                                  "framerate", GST_TYPE_FRACTION, 30, 1,
+                                  "framerate", GST_TYPE_FRACTION,
+                                  (gint) self->frame_rate, 1,
                                   NULL);
       gst_app_src_set_caps (GST_APP_SRC (self->appsrc), caps);
       if (!configure_frame_pool (self, caps,
@@ -887,7 +922,10 @@ on_hypr_stream_frame (gpointer                     user_data,
     }
   gst_buffer_unmap (buffer, &map);
 
-  GST_BUFFER_DURATION (buffer) = gst_util_uint64_scale_int (1, GST_SECOND, 30);
+  GST_BUFFER_DURATION (buffer) = gst_util_uint64_scale_int (
+    GST_SECOND,
+    1,
+    self->frame_rate);
   ret = gst_app_src_push_buffer (GST_APP_SRC (self->appsrc), buffer);
   if (ret != GST_FLOW_OK && ret != GST_FLOW_FLUSHING)
     g_debug ("appsrc push returned %s", gst_flow_get_name (ret));
@@ -924,6 +962,8 @@ show_hyprland_source (KasasaScreencast *self,
                                    _("Screencast is already active"));
     }
 
+  self->frame_rate = get_screencast_frame_rate ();
+
   if (expected_width > 0 && expected_height > 0)
     new_dimension (self, expected_width, expected_height);
 
@@ -949,7 +989,8 @@ show_hyprland_source (KasasaScreencast *self,
                                        "format", G_TYPE_STRING, "BGRx",
                                        "width", G_TYPE_INT, cap_w,
                                        "height", G_TYPE_INT, cap_h,
-                                       "framerate", GST_TYPE_FRACTION, 30, 1,
+                                       "framerate", GST_TYPE_FRACTION,
+                                       (gint) self->frame_rate, 1,
                                        NULL);
   }
   g_object_set (appsrc,
@@ -973,8 +1014,10 @@ show_hyprland_source (KasasaScreencast *self,
                 NULL);
   g_object_set (gtksink, "sync", FALSE, NULL);
 
-  g_info ("Screencast pipeline uses Hyprland native %s appsrc path",
-          output_name != NULL ? "monitor" : "window");
+  g_info ("Screencast pipeline uses Hyprland native %s appsrc path "
+          "at up to %u FPS",
+          output_name != NULL ? "monitor" : "window",
+          self->frame_rate);
 
   gst_bin_add_many (GST_BIN (self->pipeline),
                     appsrc, display_queue, gtksink,
@@ -1014,6 +1057,7 @@ show_hyprland_source (KasasaScreencast *self,
   if (output_name != NULL)
     self->hypr_stream = kasasa_hyprland_stream_start_output (
       output_name,
+      self->frame_rate,
       on_hypr_stream_frame,
       on_hypr_stream_error,
       self,
@@ -1021,6 +1065,7 @@ show_hyprland_source (KasasaScreencast *self,
       &stream_error);
   else
     self->hypr_stream = kasasa_hyprland_stream_start (window_handle,
+                                                      self->frame_rate,
                                                       on_hypr_stream_frame,
                                                       on_hypr_stream_error,
                                                       self,
@@ -1195,6 +1240,7 @@ kasasa_screencast_init (KasasaScreencast *self)
   self->fallback_source = 0;
   self->closed_handler_id = 0;
   self->finished = TRUE;
+  self->frame_rate = DEFAULT_SCREENCAST_FRAME_RATE;
 
   // Initial dimension to avoid 0 value
   self->dimension[DIMENSION_WIDTH] = DEFAULT_WIDTH;

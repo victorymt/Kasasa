@@ -68,6 +68,7 @@ struct _KasasaHyprlandStream
   KasasaHyprlandStreamSource source;
   guint32 handle;
   gchar *output_name;
+  guint frame_rate;
 
   KasasaHyprlandStreamFrameFunc frame_cb;
   KasasaHyprlandStreamErrorFunc error_cb;
@@ -1304,6 +1305,24 @@ capture_one_frame (KasasaHyprlandStream  *self,
   return capture_one_window_frame (self, retryable, error);
 }
 
+static void
+wait_for_frame_interval (KasasaHyprlandStream *self,
+                         gint64                 frame_started)
+{
+  const gint64 interval = G_USEC_PER_SEC / (gint64) self->frame_rate;
+  const gint64 deadline = frame_started + interval;
+
+  while (!stream_stop_requested (self))
+    {
+      gint64 remaining = deadline - g_get_monotonic_time ();
+
+      if (remaining <= 0)
+        return;
+
+      g_usleep ((gulong) MIN (remaining, 10 * G_TIME_SPAN_MILLISECOND));
+    }
+}
+
 static gpointer
 stream_thread_func (gpointer data)
 {
@@ -1311,6 +1330,7 @@ stream_thread_func (gpointer data)
   g_autoptr (GError) stream_error = NULL;
   gboolean retryable;
   guint consecutive_failures = 0;
+  gint64 frame_started;
 
   self->display = wl_display_connect (NULL);
   if (self->display == NULL)
@@ -1357,12 +1377,15 @@ stream_thread_func (gpointer data)
         goto out;
     }
 
+  frame_started = g_get_monotonic_time ();
   if (!capture_one_frame (self, NULL, &stream_error))
     goto out;
+  wait_for_frame_interval (self, frame_started);
 
   while (!stream_stop_requested (self))
     {
       g_clear_error (&stream_error);
+      frame_started = g_get_monotonic_time ();
       if (!capture_one_frame (self, &retryable, &stream_error))
         {
           if (stream_stop_requested (self))
@@ -1384,8 +1407,7 @@ stream_thread_func (gpointer data)
       else
         {
           consecutive_failures = 0;
-          /* Cap roughly to 30 FPS when ignore_damage forces full frames. */
-          g_usleep (33 * 1000);
+          wait_for_frame_interval (self, frame_started);
         }
     }
 
@@ -1452,6 +1474,7 @@ static KasasaHyprlandStream *
 start_stream (KasasaHyprlandStreamSource    source,
               guint32                       handle,
               const gchar                  *output_name,
+              guint                         frame_rate,
               KasasaHyprlandStreamFrameFunc frame_cb,
               KasasaHyprlandStreamErrorFunc error_cb,
               gpointer                      user_data,
@@ -1462,6 +1485,7 @@ start_stream (KasasaHyprlandStreamSource    source,
   g_autoptr (GError) thread_error = NULL;
 
   g_return_val_if_fail (frame_cb != NULL, NULL);
+  g_return_val_if_fail (frame_rate > 0, NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
   if (!kasasa_hyprland_stream_available ())
@@ -1477,6 +1501,7 @@ start_stream (KasasaHyprlandStreamSource    source,
   self->source = source;
   self->handle = handle;
   self->output_name = g_strdup (output_name);
+  self->frame_rate = frame_rate;
   self->frame_cb = frame_cb;
   self->error_cb = error_cb;
   self->user_data = user_data;
@@ -1505,6 +1530,7 @@ start_stream (KasasaHyprlandStreamSource    source,
 
 KasasaHyprlandStream *
 kasasa_hyprland_stream_start (guint32                       handle,
+                              guint                         frame_rate,
                               KasasaHyprlandStreamFrameFunc  frame_cb,
                               KasasaHyprlandStreamErrorFunc  error_cb,
                               gpointer                      user_data,
@@ -1514,6 +1540,7 @@ kasasa_hyprland_stream_start (guint32                       handle,
   return start_stream (KASASA_HYPRLAND_STREAM_SOURCE_WINDOW,
                        handle,
                        NULL,
+                       frame_rate,
                        frame_cb,
                        error_cb,
                        user_data,
@@ -1524,6 +1551,7 @@ kasasa_hyprland_stream_start (guint32                       handle,
 KasasaHyprlandStream *
 kasasa_hyprland_stream_start_output (
   const gchar                   *name,
+  guint                          frame_rate,
   KasasaHyprlandStreamFrameFunc  frame_cb,
   KasasaHyprlandStreamErrorFunc  error_cb,
   gpointer                      user_data,
@@ -1535,6 +1563,7 @@ kasasa_hyprland_stream_start_output (
   return start_stream (KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT,
                        0,
                        name,
+                       frame_rate,
                        frame_cb,
                        error_cb,
                        user_data,

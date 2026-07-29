@@ -404,6 +404,7 @@ run_stream_connection_failure_test (gboolean output)
   g_setenv ("WAYLAND_DISPLAY", "kasasa-test-display-does-not-exist", TRUE);
   if (output)
     stream = kasasa_hyprland_stream_start_output ("DP-1",
+                                                  30,
                                                   ignore_stream_frame,
                                                   record_stream_error,
                                                   &result,
@@ -411,6 +412,7 @@ run_stream_connection_failure_test (gboolean output)
                                                   &error);
   else
     stream = kasasa_hyprland_stream_start (1,
+                                           30,
                                            ignore_stream_frame,
                                            record_stream_error,
                                            &result,

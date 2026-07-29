@@ -271,6 +271,7 @@ test_cpu_screencast_pipeline (void)
                    -1,
                    1,
                    KASASA_SCREENCAST_PIPELINE_CPU,
+                   24,
                    &pipeline,
                    &error));
   g_assert_no_error (error);
@@ -317,7 +318,7 @@ test_cpu_screencast_pipeline (void)
   g_assert_false (use_bufferpool);
   g_assert_cmpint (min_buffers, ==, 1);
   g_assert_true (sync);
-  g_assert_cmpuint (throttle_time, ==, GST_SECOND / 30);
+  g_assert_cmpuint (throttle_time, ==, GST_SECOND / 24);
   g_assert_false (enable_last_sample);
   g_assert_cmpint (leaky, ==, 2);
   g_assert_cmpuint (max_size_buffers, ==, 1);
@@ -350,6 +351,7 @@ test_portal_pipeline_closes_untransferred_fd (void)
     fd,
     1,
     KASASA_SCREENCAST_PIPELINE_CPU,
+    30,
     &pipeline,
     &error);
   fd_was_closed = fcntl (fd, F_GETFD) == -1 && errno == EBADF;
@@ -405,6 +407,7 @@ test_gpu_screencast_pipeline (void)
                    -1,
                    1,
                    KASASA_SCREENCAST_PIPELINE_GPU,
+                   60,
                    &pipeline,
                    &error));
   g_assert_no_error (error);
@@ -458,7 +461,7 @@ test_gpu_screencast_pipeline (void)
   g_assert_true (use_bufferpool);
   g_assert_cmpint (min_buffers, ==, 8);
   g_assert_true (sync);
-  g_assert_cmpuint (throttle_time, ==, GST_SECOND / 30);
+  g_assert_cmpuint (throttle_time, ==, GST_SECOND / 60);
   g_assert_false (enable_last_sample);
   g_assert_cmpint (leaky, ==, 2);
   g_assert_cmpuint (max_size_buffers, ==, 1);

@@ -9,8 +9,6 @@
 
 #include <unistd.h>
 
-#define SCREENCAST_FRAME_INTERVAL_NS (GST_SECOND / 30)
-
 static GstElement *
 add_element (GstElement  *pipeline,
              const gchar *factory,
@@ -146,6 +144,7 @@ kasasa_screencast_pipeline_build_portal (
   gint                         fd,
   guint                        node_id,
   KasasaScreencastPipelineMode mode,
+  guint                        frame_rate,
   KasasaScreencastPipeline    *result,
   GError                     **error)
 {
@@ -157,6 +156,7 @@ kasasa_screencast_pipeline_build_portal (
 
   g_return_val_if_fail (result != NULL, FALSE);
   g_return_val_if_fail (result->pipeline == NULL, FALSE);
+  g_return_val_if_fail (frame_rate > 0, FALSE);
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
   node_id_str = g_strdup_printf ("%u", node_id);
@@ -195,11 +195,12 @@ kasasa_screencast_pipeline_build_portal (
                 NULL);
   fd_transferred = TRUE;
   g_object_set (gtksink,
-                /* Synchronize and cap presentation at 30 FPS so variable-rate
-                 * Portal streams cannot make GTK rebuild its render tree more
-                 * often than this lightweight preview needs. */
+                /* Synchronize and cap presentation so variable-rate Portal
+                 * streams cannot make GTK rebuild its render tree more often
+                 * than the configured preview rate. */
                 "sync", TRUE,
-                "throttle-time", SCREENCAST_FRAME_INTERVAL_NS,
+                "throttle-time",
+                gst_util_uint64_scale_int (GST_SECOND, 1, frame_rate),
                 /* The application uses the paintable, not last-sample.
                  * Keeping both would retain an extra PipeWire buffer. */
                 "enable-last-sample", FALSE,
