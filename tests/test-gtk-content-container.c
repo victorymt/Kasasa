@@ -289,6 +289,18 @@ kasasa_window_set_controls_popup_active (KasasaWindow *window,
 {
 }
 
+void
+kasasa_window_finish_initial_reveal (KasasaWindow *window)
+{
+  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
+}
+
+gboolean
+kasasa_window_is_initial_reveal_pending (KasasaWindow *window)
+{
+  return FALSE;
+}
+
 static GtkWidget *
 find_widget_by_id (GtkWidget  *widget,
                    const char *id)

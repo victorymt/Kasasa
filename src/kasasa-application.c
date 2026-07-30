@@ -158,8 +158,7 @@ validate_cli_options (gboolean     screencast,
 }
 
 static GtkWindow *
-ensure_pin_window (KasasaApplication *self,
-                   gboolean           keep_mapped)
+ensure_pin_window (KasasaApplication *self)
 {
   GtkWindow *window;
 
@@ -173,11 +172,8 @@ ensure_pin_window (KasasaApplication *self,
   window = g_object_new (KASASA_TYPE_WINDOW,
                          "application", self,
                          NULL);
+  kasasa_window_begin_initial_reveal (KASASA_WINDOW (window));
   gtk_window_present (window);
-  if (keep_mapped)
-    gtk_widget_set_opacity (GTK_WIDGET (window), 0.0);
-  else
-    gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
 
   return window;
 }
@@ -218,7 +214,7 @@ present_targeted_capture (KasasaApplication *self,
           return query_error_to_exit_code (error);
         }
 
-      window = ensure_pin_window (self, TRUE);
+      window = ensure_pin_window (self);
       if (!KASASA_IS_WINDOW (window))
         return KASASA_EXIT_ERROR;
 
@@ -240,7 +236,7 @@ present_targeted_capture (KasasaApplication *self,
           return query_error_to_exit_code (error);
         }
 
-      window = ensure_pin_window (self, FALSE);
+      window = ensure_pin_window (self);
       if (!KASASA_IS_WINDOW (window))
         return KASASA_EXIT_ERROR;
 
@@ -272,7 +268,7 @@ present_monitor_capture (KasasaApplication *self,
       return KASASA_EXIT_UNAVAILABLE;
     }
 
-  window = ensure_pin_window (self, TRUE);
+  window = ensure_pin_window (self);
   if (!KASASA_IS_WINDOW (window))
     return KASASA_EXIT_ERROR;
 

@@ -1599,8 +1599,8 @@ kasasa_content_container_load_first_screenshot_uri (KasasaContentContainer *self
     }
 
   gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
-  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
   kasasa_content_container_request_window_resize (self);
+  kasasa_window_finish_initial_reveal (window);
 
   if (g_settings_get_boolean (settings, "auto-discard-window"))
     kasasa_window_auto_discard_window (window);
@@ -1712,8 +1712,8 @@ kasasa_content_container_load_first_hyprland_monitor_screencast (
   settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
   kasasa_window_reset_zoom (window);
   gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
-  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
   kasasa_content_container_request_window_resize (self);
+  kasasa_window_finish_initial_reveal (window);
 
   if (g_settings_get_boolean (settings, "auto-discard-window"))
     kasasa_window_auto_discard_window (window);
@@ -1772,8 +1772,8 @@ kasasa_content_container_load_first_hyprland_screencast (KasasaContentContainer 
 
   kasasa_window_reset_zoom (window);
   gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
-  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
   kasasa_content_container_request_window_resize (self);
+  kasasa_window_finish_initial_reveal (window);
 
   if (g_settings_get_boolean (settings, "auto-discard-window"))
     kasasa_window_auto_discard_window (window);
@@ -1905,6 +1905,7 @@ on_page_changed (AdwCarousel *carousel,
   KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   GtkWidget *content = NULL;
   guint n_pages = adw_carousel_get_n_pages (carousel);
+  gboolean initial_reveal;
   gint new_height, new_width;
 
   g_debug ("Page changed");
@@ -1912,6 +1913,9 @@ on_page_changed (AdwCarousel *carousel,
   if (index == GTK_INVALID_LIST_POSITION || index >= n_pages)
     return;
 
+  initial_reveal = kasasa_window_is_initial_reveal_pending (window)
+                   && self->current_page_index == GTK_INVALID_LIST_POSITION
+                   && n_pages == 1;
   self->current_page_index = index;
 
   // Ensure that the window is visible
@@ -1923,6 +1927,14 @@ on_page_changed (AdwCarousel *carousel,
     return;
 
   kasasa_content_container_update_toolbar_sensibility (self);
+
+  /* The first CLI capture submits one authoritative resize after its content
+   * is loaded. Resizing here as well exposes intermediate CSD geometry. */
+  if (initial_reveal)
+    {
+      g_debug ("Deferring first-page resize to initial reveal");
+      return;
+    }
 
   kasasa_content_get_dimensions (KASASA_CONTENT (content),
                                  &new_height,

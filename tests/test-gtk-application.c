@@ -61,6 +61,12 @@ kasasa_window_request_screencast (KasasaWindow *window)
 }
 
 void
+kasasa_window_begin_initial_reveal (KasasaWindow *window)
+{
+  gtk_widget_set_opacity (GTK_WIDGET (window), 0.0);
+}
+
+void
 kasasa_window_load_first_screenshot_uri (KasasaWindow *window,
                                          const gchar  *uri)
 {

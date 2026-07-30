@@ -32,6 +32,12 @@
 // Defined on GSchema and preferences
 #define MIN_OCCUPY_SCREEN 0.1
 
+/* Wait long enough to cover the initial Wayland configure/CSD correction.
+ * A tick callback keeps frames flowing while the otherwise static pin is
+ * transparent. */
+#define INITIAL_REVEAL_SETTLE_USEC (50 * G_TIME_SPAN_MILLISECOND)
+#define INITIAL_REVEAL_STABLE_FRAMES 2
+
 struct _KasasaWindow
 {
   AdwApplicationWindow parent_instance;
@@ -50,11 +56,14 @@ struct _KasasaWindow
   /* State variables */
   gboolean hide_menu_requested;
   gboolean mouse_over_window;
+  gboolean awaiting_initial_pointer_motion;
   gboolean hiding_window;
   gboolean block_miniaturization;
   gboolean window_is_miniaturized;
   gboolean pending_resize;
   gboolean first_resize;
+  gboolean initial_reveal_pending;
+  gboolean initial_content_ready;
   gboolean carousel_locked_for_resize;
   gboolean zoom_scheduled; /* coalesce wheel events to one apply per frame */
   KasasaScrollAxis scroll_axis;
@@ -69,6 +78,15 @@ struct _KasasaWindow
   gdouble  zoom_to_height;
   gint64   zoom_last_frame_time;
   guint    zoom_tick_id;
+  guint    initial_reveal_tick_id;
+  guint    initial_reveal_stable_frames;
+  gint64   initial_reveal_started_at;
+  gint     initial_reveal_surface_width;
+  gint     initial_reveal_surface_height;
+  gint     initial_reveal_widget_width;
+  gint     initial_reveal_widget_height;
+  gint     initial_reveal_target_width;
+  gint     initial_reveal_target_height;
   gint     resize_from_width;
   gint     resize_from_height;
   gint     resize_to_width;
@@ -915,6 +933,175 @@ on_window_map (GtkWidget *widget,
   g_idle_add_once (apply_pending_resize_idle, g_object_ref (self));
 }
 
+static gboolean
+initial_reveal_tick_cb (GtkWidget     *widget,
+                        GdkFrameClock *frame_clock,
+                        gpointer       user_data)
+{
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+  GdkSurface *surface;
+  gint surface_width;
+  gint surface_height;
+  gint widget_width;
+  gint widget_height;
+  gint target_width;
+  gint target_height;
+  gboolean geometry_changed;
+
+  if (!self->initial_reveal_pending)
+    {
+      self->initial_reveal_tick_id = 0;
+      return G_SOURCE_REMOVE;
+    }
+
+  if (!self->initial_content_ready || !gtk_widget_get_mapped (widget))
+    {
+      self->initial_reveal_stable_frames = 0;
+      return G_SOURCE_CONTINUE;
+    }
+
+  /* The surface can be mapped just before monitor information becomes usable.
+   * Retry here because that ordering has no later "map" signal to wake the
+   * existing pending-resize path. */
+  if (self->pending_resize)
+    {
+      kasasa_window_apply_pending_resize (self);
+      self->initial_reveal_stable_frames = 0;
+      return G_SOURCE_CONTINUE;
+    }
+
+  if (self->first_resize)
+    {
+      self->initial_reveal_stable_frames = 0;
+      return G_SOURCE_CONTINUE;
+    }
+
+  surface = gtk_native_get_surface (GTK_NATIVE (self));
+  if (surface == NULL)
+    {
+      self->initial_reveal_stable_frames = 0;
+      return G_SOURCE_CONTINUE;
+    }
+
+  surface_width = gdk_surface_get_width (surface);
+  surface_height = gdk_surface_get_height (surface);
+  widget_width = gtk_widget_get_width (widget);
+  widget_height = gtk_widget_get_height (widget);
+  gtk_window_get_default_size (GTK_WINDOW (self),
+                               &target_width,
+                               &target_height);
+
+  if (surface_width <= 0 || surface_height <= 0
+      || widget_width <= 0 || widget_height <= 0
+      || target_width <= 0 || target_height <= 0)
+    {
+      self->initial_reveal_stable_frames = 0;
+      return G_SOURCE_CONTINUE;
+    }
+
+  geometry_changed =
+    surface_width != self->initial_reveal_surface_width
+    || surface_height != self->initial_reveal_surface_height
+    || widget_width != self->initial_reveal_widget_width
+    || widget_height != self->initial_reveal_widget_height
+    || target_width != self->initial_reveal_target_width
+    || target_height != self->initial_reveal_target_height;
+
+  self->initial_reveal_surface_width = surface_width;
+  self->initial_reveal_surface_height = surface_height;
+  self->initial_reveal_widget_width = widget_width;
+  self->initial_reveal_widget_height = widget_height;
+  self->initial_reveal_target_width = target_width;
+  self->initial_reveal_target_height = target_height;
+
+  if (geometry_changed)
+    self->initial_reveal_stable_frames = 1;
+  else
+    self->initial_reveal_stable_frames++;
+
+  if (self->initial_reveal_stable_frames < INITIAL_REVEAL_STABLE_FRAMES
+      || g_get_monotonic_time () - self->initial_reveal_started_at
+           < INITIAL_REVEAL_SETTLE_USEC)
+    return G_SOURCE_CONTINUE;
+
+  /* Mapping and correcting the surface beneath a stationary pointer can emit
+   * enter/leave events. Keep the initial, unobstructed controls state until a
+   * real pointer motion arrives after the geometry has settled. */
+  kasasa_source_clear (&self->hide_toolbar_source);
+  kasasa_source_clear (&self->hide_header_bar_source);
+  self->hide_menu_requested = FALSE;
+  self->mouse_over_window = FALSE;
+  if (g_settings_get_boolean (self->settings, "auto-hide-menu"))
+    gtk_revealer_set_reveal_child (
+      GTK_REVEALER (self->header_bar_revealer), FALSE);
+  kasasa_content_container_reveal_controls (self->content_container, FALSE);
+
+  self->initial_reveal_pending = FALSE;
+  self->initial_reveal_tick_id = 0;
+  gtk_widget_set_opacity (widget, 1.0);
+  return G_SOURCE_REMOVE;
+}
+
+void
+kasasa_window_begin_initial_reveal (KasasaWindow *self)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+
+  if (self->initial_reveal_tick_id != 0)
+    {
+      gtk_widget_remove_tick_callback (GTK_WIDGET (self),
+                                       self->initial_reveal_tick_id);
+      self->initial_reveal_tick_id = 0;
+    }
+
+  self->initial_reveal_pending = TRUE;
+  self->initial_content_ready = FALSE;
+  self->awaiting_initial_pointer_motion = TRUE;
+  self->mouse_over_window = FALSE;
+  self->initial_reveal_stable_frames = 0;
+  self->initial_reveal_started_at = 0;
+  self->initial_reveal_surface_width = -1;
+  self->initial_reveal_surface_height = -1;
+  self->initial_reveal_widget_width = -1;
+  self->initial_reveal_widget_height = -1;
+  self->initial_reveal_target_width = -1;
+  self->initial_reveal_target_height = -1;
+  kasasa_source_clear (&self->hide_toolbar_source);
+  kasasa_source_clear (&self->hide_header_bar_source);
+  self->hide_menu_requested = FALSE;
+  if (g_settings_get_boolean (self->settings, "auto-hide-menu"))
+    gtk_revealer_set_reveal_child (
+      GTK_REVEALER (self->header_bar_revealer), FALSE);
+  kasasa_content_container_reveal_controls (self->content_container, FALSE);
+  gtk_widget_set_opacity (GTK_WIDGET (self), 0.0);
+}
+
+void
+kasasa_window_finish_initial_reveal (KasasaWindow *self)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+
+  if (!self->initial_reveal_pending)
+    {
+      gtk_widget_set_opacity (GTK_WIDGET (self), 1.0);
+      return;
+    }
+
+  self->initial_content_ready = TRUE;
+  self->initial_reveal_stable_frames = 0;
+  self->initial_reveal_started_at = g_get_monotonic_time ();
+  if (self->initial_reveal_tick_id == 0)
+    self->initial_reveal_tick_id = gtk_widget_add_tick_callback (
+      GTK_WIDGET (self), initial_reveal_tick_cb, self, NULL);
+}
+
+gboolean
+kasasa_window_is_initial_reveal_pending (KasasaWindow *self)
+{
+  g_return_val_if_fail (KASASA_IS_WINDOW (self), FALSE);
+  return self->initial_reveal_pending;
+}
+
 static void
 window_opacity_progress_cb (double        value,
                             KasasaWindow *self)
@@ -1349,6 +1536,9 @@ on_mouse_enter_content_container (GtkEventControllerMotion *event_controller_mot
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
 
+  if (self->awaiting_initial_pointer_motion)
+    return;
+
   // See Note [1]
   if (gtk_menu_button_get_active (self->menu_button))
     return;
@@ -1372,6 +1562,9 @@ on_mouse_leave_content_container (GtkEventControllerMotion *event_controller_mot
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
 
+  if (self->awaiting_initial_pointer_motion)
+    return;
+
   // See Note [1]
   if (gtk_menu_button_get_active (self->menu_button))
     return;
@@ -1390,6 +1583,9 @@ on_mouse_enter_header_bar (GtkEventControllerMotion *event_controller_motion,
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
 
+  if (self->awaiting_initial_pointer_motion)
+    return;
+
   // See Note [1]
   if (gtk_menu_button_get_active (self->menu_button))
     return;
@@ -1404,6 +1600,9 @@ on_mouse_leave_header_bar (GtkEventControllerMotion *event_controller_motion,
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
 
+  if (self->awaiting_initial_pointer_motion)
+    return;
+
   // See Note [1]
   if (gtk_menu_button_get_active (self->menu_button))
     return;
@@ -1417,6 +1616,9 @@ on_mouse_enter_window (GtkEventControllerMotion *event_controller_motion,
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
 
+  if (self->awaiting_initial_pointer_motion)
+    return;
+
   self->mouse_over_window = TRUE;
   kasasa_window_miniaturize_window (self, FALSE);
 }
@@ -1426,6 +1628,9 @@ on_mouse_leave_window (GtkEventControllerMotion *event_controller_motion,
                        gpointer user_data)
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  if (self->awaiting_initial_pointer_motion)
+    return;
 
   self->mouse_over_window = FALSE;
 
@@ -1439,6 +1644,36 @@ on_mouse_leave_window (GtkEventControllerMotion *event_controller_motion,
     return;
 
   kasasa_window_miniaturize_window (self, TRUE);
+}
+
+static void
+on_mouse_motion_window (GtkEventControllerMotion *event_controller_motion,
+                        gdouble                   x,
+                        gdouble                   y,
+                        gpointer                  user_data)
+{
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  if (!self->awaiting_initial_pointer_motion
+      || self->initial_reveal_pending)
+    return;
+
+  self->awaiting_initial_pointer_motion = FALSE;
+  self->mouse_over_window = TRUE;
+  kasasa_window_miniaturize_window (self, FALSE);
+
+  if (gtk_menu_button_get_active (self->menu_button))
+    return;
+
+  kasasa_window_change_opacity (self, OPACITY_DECREASE);
+
+  if (g_settings_get_boolean (self->settings, "miniaturize-window"))
+    return;
+
+  if (g_settings_get_boolean (self->settings, "auto-hide-menu"))
+    gtk_revealer_set_reveal_child (
+      GTK_REVEALER (self->header_bar_revealer), TRUE);
+  kasasa_content_container_reveal_controls (self->content_container, TRUE);
 }
 
 static void
@@ -1804,6 +2039,13 @@ kasasa_window_dispose (GObject *kasasa_window)
   kasasa_source_clear (&self->reveal_header_bar_source);
   kasasa_source_clear (&self->miniaturization_source);
 
+  if (self->initial_reveal_tick_id != 0)
+    {
+      gtk_widget_remove_tick_callback (GTK_WIDGET (self),
+                                       self->initial_reveal_tick_id);
+      self->initial_reveal_tick_id = 0;
+    }
+
   g_clear_object (&self->settings);
   g_clear_object (&self->window_opacity_animation);
   kasasa_window_stop_resize_animations (self);
@@ -1857,9 +2099,12 @@ kasasa_window_init (KasasaWindow *self)
   // Initialize self variables
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
   self->mouse_over_window = FALSE;
+  self->awaiting_initial_pointer_motion = FALSE;
   self->hiding_window = FALSE;
   self->pending_resize = FALSE;
   self->first_resize = TRUE;
+  self->initial_reveal_pending = FALSE;
+  self->initial_content_ready = FALSE;
   self->carousel_locked_for_resize = FALSE;
   self->zoom_scheduled = FALSE;
   self->scroll_axis = KASASA_SCROLL_AXIS_UNDECIDED;
@@ -1874,6 +2119,15 @@ kasasa_window_init (KasasaWindow *self)
   self->zoom_to_height = 0;
   self->zoom_last_frame_time = 0;
   self->zoom_tick_id = 0;
+  self->initial_reveal_tick_id = 0;
+  self->initial_reveal_stable_frames = 0;
+  self->initial_reveal_started_at = 0;
+  self->initial_reveal_surface_width = -1;
+  self->initial_reveal_surface_height = -1;
+  self->initial_reveal_widget_width = -1;
+  self->initial_reveal_widget_height = -1;
+  self->initial_reveal_target_width = -1;
+  self->initial_reveal_target_height = -1;
   self->resize_from_width = 0;
   self->resize_from_height = 0;
   self->resize_to_width = 0;
@@ -1951,6 +2205,10 @@ kasasa_window_init (KasasaWindow *self)
   g_signal_connect (win_motion_event_controller,
                     "leave",
                     G_CALLBACK (on_mouse_leave_window),
+                    self);
+  g_signal_connect (win_motion_event_controller,
+                    "motion",
+                    G_CALLBACK (on_mouse_motion_window),
                     self);
   gtk_widget_add_controller (GTK_WIDGET (self),
                              win_motion_event_controller);

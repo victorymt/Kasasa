@@ -13,6 +13,10 @@
     <property name="width-request">75</property>
     <property name="height-request">75</property>
     <property name="resizable">false</property>
+    <!-- The pin provides its own in-content controls. Keeping the top-level
+         undecorated avoids a transient CSD shadow margin while Wayland
+         negotiates the monitor's fractional scale on the first frame. -->
+    <property name="decorated">false</property>
     <property name="title" translatable="yes">Kasasa</property>
     <!-- BREAKPOINT -->
     <child>
@@ -182,4 +186,3 @@
     </section>
   </menu>
 </interface>
-

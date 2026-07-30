@@ -172,6 +172,122 @@ create_temp_image_uri (gchar **path_out,
   return uri;
 }
 
+static gboolean
+wait_for_initial_reveal (KasasaWindow *window)
+{
+  gint64 deadline = g_get_monotonic_time () + 2 * G_TIME_SPAN_SECOND;
+
+  do
+    {
+      dispatch_pending_sources ();
+      if (!kasasa_window_is_initial_reveal_pending (window)
+          && gtk_widget_get_opacity (GTK_WIDGET (window)) == 1.0)
+        return TRUE;
+
+      g_usleep (1000);
+    }
+  while (g_get_monotonic_time () < deadline);
+
+  return FALSE;
+}
+
+static void
+test_initial_reveal_waits_for_stable_geometry (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autofree gchar *image_path = NULL;
+  g_autofree gchar *image_uri = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  g_autoptr (GtkEventController) content_motion = NULL;
+  g_autoptr (GtkEventController) window_motion = NULL;
+  GtkRevealer *header_bar_revealer;
+  GtkRevealer *toolbar_revealer;
+  GtkWidget *content_container;
+  KasasaWindow *window;
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  g_assert_true (g_settings_set_boolean (settings, "auto-hide-menu", TRUE));
+  g_assert_true (g_settings_set_double (settings, "controls-timeout", 0.1));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "auto-discard-window",
+                                         FALSE));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "auto-trash-image",
+                                         FALSE));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "miniaturize-window",
+                                         FALSE));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "change-opacity",
+                                         FALSE));
+
+  application_id = g_strdup_printf ("io.github.kelvinnovais.Kasasa.Reveal%u",
+                                    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  g_assert_true (g_application_register (G_APPLICATION (application),
+                                         NULL,
+                                         &error));
+  g_assert_no_error (error);
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", application,
+                         NULL);
+  g_assert_false (gtk_window_get_decorated (GTK_WINDOW (window)));
+  content_container = find_widget_by_id (GTK_WIDGET (window),
+                                         "content_container");
+  header_bar_revealer = GTK_REVEALER (
+    find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+  toolbar_revealer = GTK_REVEALER (
+    find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
+  g_assert_nonnull (content_container);
+  g_assert_nonnull (header_bar_revealer);
+  g_assert_nonnull (toolbar_revealer);
+  window_motion = find_motion_controller (GTK_WIDGET (window));
+  content_motion = find_motion_controller (content_container);
+  g_assert_nonnull (window_motion);
+  g_assert_nonnull (content_motion);
+  image_uri = create_temp_image_uri (&image_path, 1263, 1539);
+
+  kasasa_window_begin_initial_reveal (window);
+  g_assert_true (kasasa_window_is_initial_reveal_pending (window));
+  g_assert_cmpfloat (gtk_widget_get_opacity (GTK_WIDGET (window)), ==, 0.0);
+
+  gtk_window_present (GTK_WINDOW (window));
+  kasasa_window_load_first_screenshot_uri (window, image_uri);
+
+  /* Surface placement beneath a stationary cursor must not start either
+   * revealer while the first geometry is being committed. */
+  g_signal_emit_by_name (window_motion, "enter", 10.0, 10.0);
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_false (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  /* Loading and sizing the first content must not expose the intermediate
+   * client-side-decoration geometry synchronously. */
+  g_assert_true (kasasa_window_is_initial_reveal_pending (window));
+  g_assert_cmpfloat (gtk_widget_get_opacity (GTK_WIDGET (window)), ==, 0.0);
+  g_assert_true (wait_for_initial_reveal (window));
+  g_assert_true (gtk_widget_get_mapped (GTK_WIDGET (window)));
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_false (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  /* An enter without motion can still be synthesized by Wayland. Only a real
+   * post-settle motion enables the normal reveal behavior. */
+  g_signal_emit_by_name (window_motion, "enter", 10.0, 10.0);
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_false (gtk_revealer_get_reveal_child (toolbar_revealer));
+  g_signal_emit_by_name (window_motion, "motion", 11.0, 11.0);
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  gtk_window_destroy (GTK_WINDOW (window));
+  dispatch_pending_sources ();
+  g_assert_cmpint (g_remove (image_path), ==, 0);
+}
+
 static void
 test_quit_wipes_real_window_content (void)
 {
@@ -830,6 +946,8 @@ main (int argc, char **argv)
   g_object_set (gtk_settings_get_default (),
                 "gtk-enable-animations", FALSE,
                 NULL);
+  g_test_add_func ("/gtk/window/initial-reveal-stable-geometry",
+                   test_initial_reveal_waits_for_stable_geometry);
   g_test_add_func ("/gtk/window/quit-wipes-content",
                    test_quit_wipes_real_window_content);
   g_test_add_func ("/gtk/window/internal-motion-keeps-controls-visible",
