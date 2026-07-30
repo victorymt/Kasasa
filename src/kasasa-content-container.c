@@ -2047,11 +2047,10 @@ on_menu_button_active (GObject    *object,
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
   KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
+  gboolean active;
 
-  if (gtk_menu_button_get_active (self->more_actions_button))
-    kasasa_window_block_miniaturization (window, TRUE);
-  else
-    kasasa_window_block_miniaturization (window, FALSE);
+  active = gtk_menu_button_get_active (self->more_actions_button);
+  kasasa_window_set_controls_popup_active (window, active);
 }
 
 

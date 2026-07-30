@@ -23,9 +23,9 @@
 #include <gst/app/gstappsrc.h>
 #include <glib/gi18n.h>
 #include <string.h>
-#include <unistd.h>
 #include <wayland-client-protocol.h>
 
+#include "kasasa-dmabuf-paintable.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-screencast.h"
 #include "kasasa-screencast-pipeline.h"
@@ -56,6 +56,23 @@ enum
 
 static guint obj_signals[N_SIGNALS];
 
+typedef struct
+{
+  GBytes *bytes;
+  GdkMemoryFormat memory_format;
+  gint fd;
+  gint width;
+  gint height;
+  gint stride;
+  guint32 offset;
+  guint32 fourcc;
+  guint64 modifier;
+  gboolean y_invert;
+  guint32 transform;
+  GDestroyNotify release;
+  gpointer release_data;
+} PreviewFrameUpdate;
+
 struct _KasasaScreencast
 {
   AdwBin                   parent_instance;
@@ -82,6 +99,12 @@ struct _KasasaScreencast
   gint                     stream_height;
   guint                    frame_rate;
   KasasaHyprlandStreamFormat stream_format;
+  KasasaDmabufPaintable   *dmabuf_paintable;
+  GMutex                   preview_update_lock;
+  PreviewFrameUpdate      *pending_preview_update;
+  gboolean                 preview_update_scheduled;
+  gboolean                 direct_dmabuf_failed;
+  gboolean                 direct_dmabuf_active;
 };
 
 static void kasasa_screencast_content_interface_init (KasasaContentInterface *iface);
@@ -362,11 +385,187 @@ unref_element (GstElement *element)
 }
 
 static void
+preview_frame_update_free (PreviewFrameUpdate *update)
+{
+  if (update == NULL)
+    return;
+
+  if (update->release != NULL)
+    update->release (update->release_data);
+  g_clear_pointer (&update->bytes, g_bytes_unref);
+  g_free (update);
+}
+
+static void
+clear_pending_preview_update (KasasaScreencast *self)
+{
+  PreviewFrameUpdate *update;
+
+  g_mutex_lock (&self->preview_update_lock);
+  update = g_steal_pointer (&self->pending_preview_update);
+  g_mutex_unlock (&self->preview_update_lock);
+
+  preview_frame_update_free (update);
+}
+
+static gboolean
+apply_pending_preview_update (gpointer user_data)
+{
+  KasasaScreencast *self = KASASA_SCREENCAST (user_data);
+  PreviewFrameUpdate *update;
+  GdkDmabufFormats *formats;
+  g_autoptr (GdkDmabufTextureBuilder) builder = NULL;
+  g_autoptr (GdkTexture) texture = NULL;
+  g_autoptr (GError) error = NULL;
+
+  g_mutex_lock (&self->preview_update_lock);
+  update = g_steal_pointer (&self->pending_preview_update);
+  if (update == NULL)
+    self->preview_update_scheduled = FALSE;
+  g_mutex_unlock (&self->preview_update_lock);
+
+  if (update == NULL)
+    return G_SOURCE_REMOVE;
+
+  if (self->finished
+      || (update->bytes == NULL && self->direct_dmabuf_failed))
+    {
+      preview_frame_update_free (update);
+      return G_SOURCE_CONTINUE;
+    }
+
+  if (update->bytes != NULL)
+    {
+      texture = gdk_memory_texture_new (update->width,
+                                        update->height,
+                                        update->memory_format,
+                                        update->bytes,
+                                        (gsize) update->stride);
+      kasasa_dmabuf_paintable_set_texture (self->dmabuf_paintable,
+                                           texture,
+                                           update->transform,
+                                           update->y_invert);
+      if (self->direct_dmabuf_active)
+        {
+          g_info ("Hyprland window preview switched to wl_shm/GTK memory textures");
+          self->direct_dmabuf_active = FALSE;
+        }
+      preview_frame_update_free (update);
+      return G_SOURCE_CONTINUE;
+    }
+
+  formats = gdk_display_get_dmabuf_formats (
+    gtk_widget_get_display (GTK_WIDGET (self)));
+  if (formats == NULL
+      || !gdk_dmabuf_formats_contains (formats,
+                                       update->fourcc,
+                                       update->modifier))
+    {
+      g_warning ("GTK cannot import Hyprland DMA-BUF 0x%08x:0x%016" G_GINT64_MODIFIER "x; using wl_shm",
+                 update->fourcc,
+                 update->modifier);
+      goto fallback;
+    }
+
+  builder = gdk_dmabuf_texture_builder_new ();
+  gdk_dmabuf_texture_builder_set_display (
+    builder,
+    gtk_widget_get_display (GTK_WIDGET (self)));
+  gdk_dmabuf_texture_builder_set_width (builder, (guint) update->width);
+  gdk_dmabuf_texture_builder_set_height (builder, (guint) update->height);
+  gdk_dmabuf_texture_builder_set_fourcc (builder, update->fourcc);
+  gdk_dmabuf_texture_builder_set_modifier (builder, update->modifier);
+  gdk_dmabuf_texture_builder_set_premultiplied (builder, TRUE);
+  gdk_dmabuf_texture_builder_set_n_planes (builder, 1);
+  gdk_dmabuf_texture_builder_set_fd (builder, 0, update->fd);
+  gdk_dmabuf_texture_builder_set_stride (builder, 0, (guint) update->stride);
+  gdk_dmabuf_texture_builder_set_offset (builder, 0, update->offset);
+
+  texture = gdk_dmabuf_texture_builder_build (builder,
+                                              update->release,
+                                              update->release_data,
+                                              &error);
+  if (texture == NULL)
+    {
+      g_warning ("GTK failed to import the Hyprland DMA-BUF: %s; using wl_shm",
+                 error != NULL ? error->message : "unknown error");
+      goto fallback;
+    }
+
+  /* The texture owns the release notification and therefore the pool slot. */
+  update->release = NULL;
+  update->release_data = NULL;
+  kasasa_dmabuf_paintable_set_texture (self->dmabuf_paintable,
+                                       texture,
+                                       update->transform,
+                                       update->y_invert);
+  if (gtk_picture_get_paintable (self->picture)
+      != GDK_PAINTABLE (self->dmabuf_paintable))
+    gtk_picture_set_paintable (self->picture,
+                               GDK_PAINTABLE (self->dmabuf_paintable));
+
+  if (!self->direct_dmabuf_active)
+    {
+      g_info ("Hyprland window preview directly imports DMA-BUF 0x%08x:0x%016" G_GINT64_MODIFIER "x into GTK",
+              update->fourcc,
+              update->modifier);
+      self->direct_dmabuf_active = TRUE;
+    }
+
+  preview_frame_update_free (update);
+  return G_SOURCE_CONTINUE;
+
+fallback:
+  self->direct_dmabuf_failed = TRUE;
+  if (self->hypr_stream != NULL)
+    kasasa_hyprland_stream_disable_dmabuf (self->hypr_stream);
+  preview_frame_update_free (update);
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+queue_preview_frame_update (KasasaScreencast *self,
+                            PreviewFrameUpdate *update)
+{
+  PreviewFrameUpdate *old_update;
+  gboolean schedule_update = FALSE;
+
+  g_mutex_lock (&self->preview_update_lock);
+  old_update = self->pending_preview_update;
+  self->pending_preview_update = update;
+  if (!self->preview_update_scheduled)
+    {
+      self->preview_update_scheduled = TRUE;
+      schedule_update = TRUE;
+    }
+  g_mutex_unlock (&self->preview_update_lock);
+
+  /* Keep at most one not-yet-imported frame. For DMA-BUF this immediately
+   * returns a replaced frame's slot to the three-buffer capture pool. */
+  preview_frame_update_free (old_update);
+
+  if (schedule_update)
+    g_main_context_invoke_full (NULL,
+                                G_PRIORITY_HIGH_IDLE,
+                                apply_pending_preview_update,
+                                g_object_ref (self),
+                                g_object_unref);
+}
+
+static void
 clear_gstreamer_pipeline (KasasaScreencast *self)
 {
   KasasaScreencastPipeline pipeline = { 0 };
 
   g_clear_object (&self->appsrc);
+  clear_pending_preview_update (self);
+  if (self->dmabuf_paintable != NULL)
+    kasasa_dmabuf_paintable_set_texture (self->dmabuf_paintable,
+                                         NULL,
+                                         WL_OUTPUT_TRANSFORM_NORMAL,
+                                         FALSE);
+  self->direct_dmabuf_failed = FALSE;
+  self->direct_dmabuf_active = FALSE;
 
   if (self->bus != NULL)
     {
@@ -758,6 +957,153 @@ hypr_stream_format_name (KasasaHyprlandStreamFormat format)
     }
 }
 
+static gboolean
+hypr_stream_memory_format (KasasaHyprlandStreamFormat  format,
+                           GdkMemoryFormat             *memory_format)
+{
+  switch (format)
+    {
+    case KASASA_HYPRLAND_STREAM_FORMAT_BGRX:
+      *memory_format = GDK_MEMORY_B8G8R8X8;
+      return TRUE;
+    case KASASA_HYPRLAND_STREAM_FORMAT_BGRA:
+      *memory_format = GDK_MEMORY_B8G8R8A8_PREMULTIPLIED;
+      return TRUE;
+    case KASASA_HYPRLAND_STREAM_FORMAT_RGBX:
+      *memory_format = GDK_MEMORY_R8G8B8X8;
+      return TRUE;
+    case KASASA_HYPRLAND_STREAM_FORMAT_RGBA:
+      *memory_format = GDK_MEMORY_R8G8B8A8_PREMULTIPLIED;
+      return TRUE;
+    default:
+      return FALSE;
+    }
+}
+
+static void
+on_hypr_stream_dmabuf_frame (gpointer   user_data,
+                             gint       fd,
+                             gint       width,
+                             gint       height,
+                             gint       stride,
+                             guint32    offset,
+                             guint32    fourcc,
+                             guint64    modifier,
+                             gboolean   y_invert,
+                             guint32    transform,
+                             GDestroyNotify release,
+                             gpointer   release_data)
+{
+  KasasaScreencast *self = user_data;
+  PreviewFrameUpdate *update;
+  gint output_width;
+  gint output_height;
+
+  if (self == NULL || release == NULL || fd < 0
+      || width <= 0 || height <= 0 || stride <= 0
+      || (gsize) height > (G_MAXSIZE - offset) / (gsize) stride)
+    {
+      if (release != NULL)
+        release (release_data);
+      return;
+    }
+
+  if (transform == WL_OUTPUT_TRANSFORM_90
+      || transform == WL_OUTPUT_TRANSFORM_270
+      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_90
+      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+    {
+      output_width = height;
+      output_height = width;
+    }
+  else
+    {
+      output_width = width;
+      output_height = height;
+    }
+
+  if (self->stream_width != output_width
+      || self->stream_height != output_height)
+    {
+      self->stream_width = output_width;
+      self->stream_height = output_height;
+      queue_stream_size_update (self, output_width, output_height);
+    }
+
+  update = g_new0 (PreviewFrameUpdate, 1);
+  update->fd = fd;
+  update->width = width;
+  update->height = height;
+  update->stride = stride;
+  update->offset = offset;
+  update->fourcc = fourcc;
+  update->modifier = modifier;
+  update->y_invert = y_invert;
+  update->transform = transform;
+  update->release = release;
+  update->release_data = release_data;
+  queue_preview_frame_update (self, update);
+}
+
+static void
+on_hypr_stream_direct_shm_frame (gpointer                     user_data,
+                                 const guint8                *data,
+                                 gint                         width,
+                                 gint                         height,
+                                 gint                         stride,
+                                 KasasaHyprlandStreamFormat   format,
+                                 gboolean                     y_invert,
+                                 guint32                      transform)
+{
+  KasasaScreencast *self = user_data;
+  PreviewFrameUpdate *update;
+  GdkMemoryFormat memory_format;
+  gsize size;
+  gint output_width;
+  gint output_height;
+
+  if (self == NULL || data == NULL
+      || width <= 0 || height <= 0 || stride <= 0
+      || (gsize) width > G_MAXSIZE / 4
+      || (gsize) stride < (gsize) width * 4
+      || (gsize) height > G_MAXSIZE / (gsize) stride
+      || !hypr_stream_memory_format (format, &memory_format))
+    return;
+
+  if (transform == WL_OUTPUT_TRANSFORM_90
+      || transform == WL_OUTPUT_TRANSFORM_270
+      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_90
+      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+    {
+      output_width = height;
+      output_height = width;
+    }
+  else
+    {
+      output_width = width;
+      output_height = height;
+    }
+
+  if (self->stream_width != output_width
+      || self->stream_height != output_height)
+    {
+      self->stream_width = output_width;
+      self->stream_height = output_height;
+      queue_stream_size_update (self, output_width, output_height);
+    }
+
+  size = (gsize) stride * (gsize) height;
+  update = g_new0 (PreviewFrameUpdate, 1);
+  update->bytes = g_bytes_new (data, size);
+  update->memory_format = memory_format;
+  update->width = width;
+  update->height = height;
+  update->stride = stride;
+  update->y_invert = y_invert;
+  update->transform = transform;
+  queue_preview_frame_update (self, update);
+}
+
 static void
 on_hypr_stream_frame (gpointer                     user_data,
                       const guint8                *data,
@@ -954,6 +1300,7 @@ show_hyprland_source (KasasaScreencast *self,
   self->stream_width = 0;
   self->stream_height = 0;
   self->stream_format = KASASA_HYPRLAND_STREAM_FORMAT_BGRX;
+  self->direct_dmabuf_failed = FALSE;
 
   if (self->pipeline != NULL || self->hypr_stream != NULL)
     {
@@ -966,6 +1313,40 @@ show_hyprland_source (KasasaScreencast *self,
 
   if (expected_width > 0 && expected_height > 0)
     new_dimension (self, expected_width, expected_height);
+
+  if (output_name == NULL)
+    {
+      g_info ("Hyprland native window preview uses direct GTK DMA-BUF "
+              "import with wl_shm memory-texture fallback at up to %u FPS",
+              self->frame_rate);
+      gtk_picture_set_paintable (
+        self->picture,
+        GDK_PAINTABLE (self->dmabuf_paintable));
+
+      self->hypr_stream = kasasa_hyprland_stream_start_dmabuf (
+        window_handle,
+        self->frame_rate,
+        on_hypr_stream_dmabuf_frame,
+        on_hypr_stream_direct_shm_frame,
+        on_hypr_stream_error,
+        self,
+        NULL,
+        &stream_error);
+      if (self->hypr_stream == NULL)
+        {
+          gtk_picture_set_paintable (self->picture, NULL);
+          if (stream_error != NULL)
+            g_propagate_error (error, g_steal_pointer (&stream_error));
+          else
+            set_screencast_error (error,
+                                  G_IO_ERROR_FAILED,
+                                  _("Couldn't start Hyprland window capture"));
+          return FALSE;
+        }
+
+      gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
+      return TRUE;
+    }
 
   self->pipeline = gst_pipeline_new ("hyprland-pipeline");
   appsrc = gst_element_factory_make ("appsrc", "appsrc");
@@ -1014,13 +1395,14 @@ show_hyprland_source (KasasaScreencast *self,
                 NULL);
   g_object_set (gtksink, "sync", FALSE, NULL);
 
-  g_info ("Screencast pipeline uses Hyprland native %s appsrc path "
+  g_info ("Hyprland native monitor preview uses the wl_shm appsrc path "
           "at up to %u FPS",
-          output_name != NULL ? "monitor" : "window",
           self->frame_rate);
 
   gst_bin_add_many (GST_BIN (self->pipeline),
-                    appsrc, display_queue, gtksink,
+                    appsrc,
+                    display_queue,
+                    gtksink,
                     NULL);
 
   if (!gst_element_link_many (appsrc,
@@ -1032,7 +1414,7 @@ show_hyprland_source (KasasaScreencast *self,
                                    G_IO_ERROR_FAILED,
                                    _("The screencast pipeline could not be linked"));
     }
-
+  self->using_gpu_pipeline = FALSE;
   gtk_picture_set_paintable (self->picture, paintable);
 
   self->bus = gst_element_get_bus (self->pipeline);
@@ -1054,23 +1436,14 @@ show_hyprland_source (KasasaScreencast *self,
     }
 
   self->appsrc = gst_object_ref (appsrc);
-  if (output_name != NULL)
-    self->hypr_stream = kasasa_hyprland_stream_start_output (
-      output_name,
-      self->frame_rate,
-      on_hypr_stream_frame,
-      on_hypr_stream_error,
-      self,
-      NULL,
-      &stream_error);
-  else
-    self->hypr_stream = kasasa_hyprland_stream_start (window_handle,
-                                                      self->frame_rate,
-                                                      on_hypr_stream_frame,
-                                                      on_hypr_stream_error,
-                                                      self,
-                                                      NULL,
-                                                      &stream_error);
+  self->hypr_stream = kasasa_hyprland_stream_start_output (
+    output_name,
+    self->frame_rate,
+    on_hypr_stream_frame,
+    on_hypr_stream_error,
+    self,
+    NULL,
+    &stream_error);
   if (self->hypr_stream == NULL)
     {
       if (stream_error != NULL)
@@ -1078,9 +1451,7 @@ show_hyprland_source (KasasaScreencast *self,
       else
         set_screencast_error (error,
                               G_IO_ERROR_FAILED,
-                              output_name != NULL
-                              ? _("Couldn't start Hyprland monitor capture")
-                              : _("Couldn't start Hyprland window capture"));
+                              _("Couldn't start Hyprland monitor capture"));
       return FALSE;
     }
 
@@ -1137,8 +1508,19 @@ kasasa_screencast_dispose (GObject *object)
 
   kasasa_screencast_finish (KASASA_CONTENT (self));
   clear_gstreamer_pipeline (self);
+  g_clear_object (&self->dmabuf_paintable);
 
   G_OBJECT_CLASS (kasasa_screencast_parent_class)->dispose (object);
+}
+
+static void
+kasasa_screencast_finalize (GObject *object)
+{
+  KasasaScreencast *self = KASASA_SCREENCAST (object);
+
+  g_mutex_clear (&self->preview_update_lock);
+
+  G_OBJECT_CLASS (kasasa_screencast_parent_class)->finalize (object);
 }
 
 static void
@@ -1227,6 +1609,7 @@ kasasa_screencast_class_init (KasasaScreencastClass *klass)
                   0);
 
   object_class->dispose = kasasa_screencast_dispose;
+  object_class->finalize = kasasa_screencast_finalize;
 
   widget_class->measure = kasasa_screencast_measure;
   widget_class->size_allocate = kasasa_screencast_size_allocate;
@@ -1241,6 +1624,8 @@ kasasa_screencast_init (KasasaScreencast *self)
   self->closed_handler_id = 0;
   self->finished = TRUE;
   self->frame_rate = DEFAULT_SCREENCAST_FRAME_RATE;
+  g_mutex_init (&self->preview_update_lock);
+  self->dmabuf_paintable = kasasa_dmabuf_paintable_new ();
 
   // Initial dimension to avoid 0 value
   self->dimension[DIMENSION_WIDTH] = DEFAULT_WIDTH;

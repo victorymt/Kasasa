@@ -23,6 +23,7 @@ toplevel_export_protocol_c = custom_target(
 wayland_protocols_gen += [toplevel_export_client_h, toplevel_export_protocol_c]
 
 foreach protocol : [
+  ['linux-dmabuf-v1', wayland_protocols_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml'],
   ['ext-foreign-toplevel-list-v1', wayland_protocols_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml'],
   ['ext-image-capture-source-v1', wayland_protocols_dir / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml'],
   ['ext-image-copy-capture-v1', wayland_protocols_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'],
@@ -57,6 +58,7 @@ kasasa_sources = [
   'kasasa-zoom.c',
   'kasasa-screenshot.c',
   'kasasa-screencast.c',
+  'kasasa-dmabuf-paintable.c',
   'kasasa-screencast-pipeline.c',
   'kasasa-content-container.c',
   'kasasa-window-query.c',
@@ -67,13 +69,15 @@ kasasa_sources = [
 ]
 
 kasasa_deps = [
-  dependency('gtk4'),
+  dependency('gtk4', version: '>= 4.14'),
   dependency('libadwaita-1', version: '>= 1.7.4'),
   dependency('libportal'),
   dependency('libportal-gtk4'),
   dependency('gstreamer-1.0'),
   dependency('gstreamer-app-1.0'),
   dependency('json-glib-1.0'),
+  dependency('gbm'),
+  dependency('libdrm'),
   wayland_client_dep,
 ]
 

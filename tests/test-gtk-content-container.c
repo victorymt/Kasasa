@@ -283,6 +283,12 @@ kasasa_window_block_miniaturization (KasasaWindow *window,
 {
 }
 
+void
+kasasa_window_set_controls_popup_active (KasasaWindow *window,
+                                         gboolean      active)
+{
+}
+
 static GtkWidget *
 find_widget_by_id (GtkWidget  *widget,
                    const char *id)

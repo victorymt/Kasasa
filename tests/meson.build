@@ -1,12 +1,14 @@
 glib_dep = dependency('glib-2.0')
 gio_dep = dependency('gio-2.0')
-gtk_dep = dependency('gtk4')
+gtk_dep = dependency('gtk4', version: '>= 4.14')
 adwaita_dep = dependency('libadwaita-1', version: '>= 1.7.4')
 portal_dep = dependency('libportal')
 portal_gtk_dep = dependency('libportal-gtk4')
 gstreamer_dep = dependency('gstreamer-1.0')
 gstreamer_app_dep = dependency('gstreamer-app-1.0')
 json_glib_dep = dependency('json-glib-1.0')
+gbm_dep = dependency('gbm')
+libdrm_dep = dependency('libdrm')
 wayland_client_dep = dependency('wayland-client')
 wayland_protocols_dep = dependency('wayland-protocols')
 wayland_protocols_dir = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir')
@@ -52,6 +54,7 @@ toplevel_export_protocol_c = custom_target(
 hyprland_protocol_gen = [toplevel_export_client_h, toplevel_export_protocol_c]
 
 foreach protocol : [
+  ['linux-dmabuf-v1', wayland_protocols_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml'],
   ['ext-foreign-toplevel-list-v1', wayland_protocols_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml'],
   ['ext-image-capture-source-v1', wayland_protocols_dir / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml'],
   ['ext-image-copy-capture-v1', wayland_protocols_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml'],
@@ -137,7 +140,14 @@ window_query_test = executable(
     hyprland_protocol_gen,
   ],
   include_directories: include_directories('../src', '.'),
-  dependencies: [glib_dep, json_glib_dep, wayland_client_dep, rt_dep],
+  dependencies: [
+    glib_dep,
+    json_glib_dep,
+    wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
+    rt_dep,
+  ],
 )
 
 test(
@@ -156,6 +166,7 @@ gtk_screenshot_test = executable(
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
+    '../src/kasasa-dmabuf-paintable.c',
     '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-window-query.c',
@@ -171,6 +182,8 @@ gtk_screenshot_test = executable(
     gstreamer_app_dep,
     json_glib_dep,
     wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
     rt_dep,
   ],
 )
@@ -200,7 +213,14 @@ gtk_application_test = executable(
     hyprland_protocol_gen,
   ],
   include_directories: include_directories('../src', '.'),
-  dependencies: [adwaita_dep, json_glib_dep, wayland_client_dep, rt_dep],
+  dependencies: [
+    adwaita_dep,
+    json_glib_dep,
+    wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
+    rt_dep,
+  ],
 )
 
 test(
@@ -258,6 +278,7 @@ gtk_content_container_test = executable(
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
+    '../src/kasasa-dmabuf-paintable.c',
     '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-window-query.c',
@@ -276,6 +297,8 @@ gtk_content_container_test = executable(
     math_dep,
     json_glib_dep,
     wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
     rt_dep,
   ],
 )
@@ -307,6 +330,7 @@ gtk_window_test = executable(
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
+    '../src/kasasa-dmabuf-paintable.c',
     '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-zoom.c',
@@ -327,6 +351,8 @@ gtk_window_test = executable(
     math_dep,
     json_glib_dep,
     wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
     rt_dep,
   ],
 )

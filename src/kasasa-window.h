@@ -95,6 +95,8 @@ void kasasa_window_miniaturize_window (KasasaWindow *window,
                                        gboolean      miniaturize);
 void kasasa_window_block_miniaturization (KasasaWindow *window,
                                           gboolean      block);
+void kasasa_window_set_controls_popup_active (KasasaWindow *window,
+                                              gboolean      active);
 void kasasa_window_take_first_screenshot (KasasaWindow *window);
 void kasasa_window_take_first_screencast (KasasaWindow *window);
 void kasasa_window_request_screencast (KasasaWindow *window);

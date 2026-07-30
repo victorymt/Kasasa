@@ -246,6 +246,8 @@ test_internal_motion_keeps_controls_visible (void)
   g_autoptr (GtkEventController) window_motion = NULL;
   GtkWidget *content_container;
   GtkRevealer *header_bar_revealer;
+  GtkRevealer *toolbar_revealer;
+  GtkMenuButton *more_actions_button;
   KasasaWindow *window;
 
   settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
@@ -270,8 +272,14 @@ test_internal_motion_keeps_controls_visible (void)
                                          "content_container");
   header_bar_revealer = GTK_REVEALER (
     find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+  toolbar_revealer = GTK_REVEALER (
+    find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
+  more_actions_button = GTK_MENU_BUTTON (
+    find_widget_by_id (GTK_WIDGET (window), "more_actions_button"));
   g_assert_nonnull (content_container);
   g_assert_nonnull (header_bar_revealer);
+  g_assert_nonnull (toolbar_revealer);
+  g_assert_nonnull (more_actions_button);
 
   window_motion = find_motion_controller (GTK_WIDGET (window));
   content_motion = find_motion_controller (content_container);
@@ -290,12 +298,26 @@ test_internal_motion_keeps_controls_visible (void)
   dispatch_sources_for (150);
   g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
 
-  /* A real top-level leave must still hide the controls after the timeout. */
+  /* A popover is a separate native surface. Entering it may therefore emit a
+   * top-level leave even though it is logically part of the pin controls. */
+  gtk_menu_button_popup (more_actions_button);
+  dispatch_pending_sources ();
+  g_assert_true (gtk_menu_button_get_active (more_actions_button));
+
   g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
   g_signal_emit_by_name (content_motion, "leave");
   g_signal_emit_by_name (window_motion, "leave");
   dispatch_sources_for (150);
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+  g_assert_true (gtk_menu_button_get_active (more_actions_button));
+
+  /* Closing the popover while outside the pin restarts the 0.1 second hide
+   * timeout, preserving the configured unobstructed-image behavior. */
+  gtk_menu_button_popdown (more_actions_button);
+  dispatch_sources_for (150);
   g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_false (gtk_revealer_get_reveal_child (toolbar_revealer));
 
   gtk_window_destroy (GTK_WINDOW (window));
   dispatch_pending_sources ();

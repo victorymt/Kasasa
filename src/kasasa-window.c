@@ -1237,6 +1237,13 @@ kasasa_window_block_miniaturization (KasasaWindow *self,
     }
 }
 
+static gboolean
+controls_should_remain_visible (KasasaWindow *self)
+{
+  return self->mouse_over_window
+         || kasasa_content_container_controls_active (self->content_container);
+}
+
 static void
 hide_header_bar_cb (gpointer user_data)
 {
@@ -1247,7 +1254,7 @@ hide_header_bar_cb (gpointer user_data)
    * Hidding was queried because at some moment the mouse pointer left the window,
    * however, don't hide the HeaderBar if it returned and is still over the window
    */
-  if (self->mouse_over_window)
+  if (controls_should_remain_visible (self))
     return;
 
   gtk_revealer_set_reveal_child (GTK_REVEALER (self->header_bar_revealer), FALSE);
@@ -1262,7 +1269,7 @@ hide_toolbar_cb (gpointer user_data)
    * Hidding was queried because at some moment the mouse pointer left the window,
    * however, don't hide the Toolbar if it returned and is still over the window
    */
-  if (self->mouse_over_window)
+  if (controls_should_remain_visible (self))
     return;
 
   kasasa_content_container_reveal_controls (self->content_container, FALSE);
@@ -1293,6 +1300,45 @@ hide_header_bar (KasasaWindow *self)
                                         hide_header_bar_cb,
                                         self);
       }
+}
+
+static void
+schedule_toolbar_hide (KasasaWindow *self)
+{
+  guint interval;
+
+  if (controls_should_remain_visible (self))
+    return;
+
+  interval = (guint) (1000 * g_settings_get_double (self->settings,
+                                                     "controls-timeout"));
+  kasasa_source_set_timeout_once (&self->hide_toolbar_source,
+                                  interval,
+                                  hide_toolbar_cb,
+                                  self);
+}
+
+void
+kasasa_window_set_controls_popup_active (KasasaWindow *self,
+                                         gboolean      active)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+
+  kasasa_window_block_miniaturization (self, active);
+
+  if (active)
+    {
+      kasasa_source_clear (&self->hide_toolbar_source);
+      kasasa_source_clear (&self->hide_header_bar_source);
+      self->hide_menu_requested = FALSE;
+      return;
+    }
+
+  if (!self->mouse_over_window)
+    {
+      schedule_toolbar_hide (self);
+      hide_header_bar (self);
+    }
 }
 
 static void
@@ -1380,15 +1426,10 @@ on_mouse_leave_window (GtkEventControllerMotion *event_controller_motion,
                        gpointer user_data)
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
-  guint interval = (guint) 1000 * g_settings_get_double (self->settings,
-                                                         "controls-timeout");
 
   self->mouse_over_window = FALSE;
 
-  kasasa_source_set_timeout_once (&self->hide_toolbar_source,
-                                  interval,
-                                  hide_toolbar_cb,
-                                  self);
+  schedule_toolbar_hide (self);
 
   if (gtk_toggle_button_get_active (self->lock_button))
     return;

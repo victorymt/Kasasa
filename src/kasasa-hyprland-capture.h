@@ -25,7 +25,8 @@
 G_BEGIN_DECLS
 
 /*
- * Capture a window with grim using the client geometry.
+ * Capture a window through Hyprland's toplevel-export protocol. This captures
+ * the window itself even when it is not visible on the current workspace.
  * Returns a file:// URI the caller owns (g_free), or NULL on error.
  */
 gchar *kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,

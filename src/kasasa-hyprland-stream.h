@@ -48,6 +48,26 @@ typedef void (*KasasaHyprlandStreamFrameFunc) (
   gboolean                     y_invert,
   guint32                      transform);
 
+/*
+ * Called from the stream worker with a single-plane DMA-BUF frame. The fd
+ * remains valid until release(release_data) is called. The callback must pass
+ * that destroy notification to the object importing the DMA-BUF, or call it
+ * directly when the frame is discarded.
+ */
+typedef void (*KasasaHyprlandStreamDmabufFrameFunc) (
+  gpointer user_data,
+  gint     fd,
+  gint     width,
+  gint     height,
+  gint     stride,
+  guint32  offset,
+  guint32  fourcc,
+  guint64  modifier,
+  gboolean y_invert,
+  guint32  transform,
+  GDestroyNotify release,
+  gpointer release_data);
+
 /* Called from the worker thread if startup fails or an active stream ends. */
 typedef void (*KasasaHyprlandStreamErrorFunc) (
   gpointer                     user_data,
@@ -74,6 +94,22 @@ KasasaHyprlandStream *kasasa_hyprland_stream_start (guint32                     
                                                     gpointer                      user_data,
                                                     GDestroyNotify                user_data_destroy,
                                                     GError                      **error);
+
+/* Prefer DMA-BUF window frames and fall back to frame_cb/wl_shm if the
+ * compositor, allocator, or requested format cannot use DMA-BUF. */
+KasasaHyprlandStream *kasasa_hyprland_stream_start_dmabuf (
+  guint32                              handle,
+  guint                                frame_rate,
+  KasasaHyprlandStreamDmabufFrameFunc  dmabuf_frame_cb,
+  KasasaHyprlandStreamFrameFunc        frame_cb,
+  KasasaHyprlandStreamErrorFunc        error_cb,
+  gpointer                             user_data,
+  GDestroyNotify                       user_data_destroy,
+  GError                             **error);
+
+/* Stop offering DMA-BUF targets after a downstream importer rejects the
+ * negotiated format/modifier. The worker switches to its wl_shm fallback. */
+void kasasa_hyprland_stream_disable_dmabuf (KasasaHyprlandStream *self);
 
 /* Start native capture of the wl_output whose compositor name matches NAME,
  * capped at frame_rate frames per second. */

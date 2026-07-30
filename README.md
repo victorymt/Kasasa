@@ -36,7 +36,7 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > running, `--screencast` appends a new screencast to the existing window.
 >
 > On Hyprland you can also list windows and pin a specific one without the
-> interactive picker (needs `hyprctl` and `grim`):
+> interactive picker (needs `hyprctl` and a Hyprland Wayland session):
 >
 > ```
 > kasasa --list-windows
@@ -57,6 +57,12 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > kasasa --screencast --window=title:nvim
 > kasasa --screencast --window=active
 > ```
+>
+> Targeted window previews use a three-buffer GBM pool and import each
+> DMA-BUF directly as a `GdkTexture`; GStreamer and intermediate GL conversion
+> are bypassed on this path. Rotation and Y inversion are applied by the GTK
+> snapshot transform. Kasasa falls back to `wl_shm` when allocation or GTK
+> import is unavailable.
 >
 > Hyprland-native monitor capture is also available. It bypasses Portal and
 > captures the named output directly:
@@ -103,7 +109,7 @@ it can still interactively select a screen or a window.
 ## Building
 
 Kasasa uses Meson. Install a C compiler, Meson, Ninja, and the development
-packages for GTK 4, Libadwaita, libportal, GStreamer, JSON-GLib, and Wayland,
+packages for GTK 4.14+, Libadwaita, libportal, GStreamer, JSON-GLib, and Wayland,
 plus `wayland-protocols` (including the staging image-copy-capture XML files),
 then run:
 

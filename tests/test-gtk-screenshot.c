@@ -24,8 +24,10 @@
 #include <glib/gstdio.h>
 #include <gst/gst.h>
 #include <unistd.h>
+#include <wayland-client-protocol.h>
 
 #include "kasasa-content.h"
+#include "kasasa-dmabuf-paintable.h"
 #include "kasasa-screencast.h"
 #include "kasasa-screencast-pipeline.h"
 #include "kasasa-window-query.h"
@@ -136,6 +138,72 @@ test_screencast_layout (void)
   g_assert_cmpint (gtk_picture_get_content_fit (picture),
                    ==,
                    GTK_CONTENT_FIT_CONTAIN);
+}
+
+static void
+test_dmabuf_paintable_transform_dimensions (void)
+{
+  static const guint8 pixels[3 * 2 * 4] = { 0 };
+  g_autoptr (GBytes) bytes = g_bytes_new_static (pixels, sizeof pixels);
+  g_autoptr (GdkTexture) texture = NULL;
+  g_autoptr (KasasaDmabufPaintable) paintable =
+    kasasa_dmabuf_paintable_new ();
+  GtkSnapshot *snapshot;
+  GskRenderNode *node;
+
+  texture = gdk_memory_texture_new (3,
+                                    2,
+                                    GDK_MEMORY_R8G8B8A8_PREMULTIPLIED,
+                                    bytes,
+                                    3 * 4);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_width (
+                     GDK_PAINTABLE (paintable)),
+                   ==,
+                   0);
+
+  kasasa_dmabuf_paintable_set_texture (paintable,
+                                       texture,
+                                       WL_OUTPUT_TRANSFORM_NORMAL,
+                                       FALSE);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_width (
+                     GDK_PAINTABLE (paintable)),
+                   ==,
+                   3);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_height (
+                     GDK_PAINTABLE (paintable)),
+                   ==,
+                   2);
+
+  kasasa_dmabuf_paintable_set_texture (paintable,
+                                       texture,
+                                       WL_OUTPUT_TRANSFORM_90,
+                                       FALSE);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_width (
+                     GDK_PAINTABLE (paintable)),
+                   ==,
+                   2);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_height (
+                     GDK_PAINTABLE (paintable)),
+                   ==,
+                   3);
+
+  snapshot = gtk_snapshot_new ();
+  gdk_paintable_snapshot (GDK_PAINTABLE (paintable),
+                          snapshot,
+                          20,
+                          30);
+  node = gtk_snapshot_free_to_node (snapshot);
+  g_assert_nonnull (node);
+  gsk_render_node_unref (node);
+
+  kasasa_dmabuf_paintable_set_texture (paintable,
+                                       NULL,
+                                       WL_OUTPUT_TRANSFORM_NORMAL,
+                                       FALSE);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_width (
+                     GDK_PAINTABLE (paintable)),
+                   ==,
+                   0);
 }
 
 static void
@@ -647,6 +715,8 @@ main (int argc, char **argv)
 
   g_test_add_func ("/gtk/screenshot/layout", test_screenshot_layout);
   g_test_add_func ("/gtk/screencast/layout", test_screencast_layout);
+  g_test_add_func ("/gtk/screencast/dmabuf-transform-dimensions",
+                   test_dmabuf_paintable_transform_dimensions);
   g_test_add_func ("/gtk/content/fit-rounding-gaps",
                    test_content_fit_ignores_rounding_gaps);
   g_test_add_func ("/gtk/screencast/invalid-connection",
