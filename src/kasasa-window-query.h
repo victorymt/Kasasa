@@ -84,6 +84,7 @@ gboolean kasasa_window_spec_parse (const gchar      *text,
                                    GError          **error);
 
 void kasasa_window_client_free (KasasaWindowClient *client);
+KasasaWindowClient *kasasa_window_client_copy (const KasasaWindowClient *client);
 void kasasa_window_client_list_free (GPtrArray *clients);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (KasasaWindowClient, kasasa_window_client_free)

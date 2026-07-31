@@ -303,22 +303,13 @@ present_or_create_window (KasasaApplication *self,
                          "application", self,
                          NULL);
 
+  kasasa_window_begin_initial_reveal (KASASA_WINDOW (window));
   gtk_window_present (window);
 
   if (start_with_screencast)
-    {
-      // Keep the surface mapped: GStreamer gtk4paintablesink / GL needs a live
-      // Wayland surface. Hide with opacity instead of unmapping (set_visible
-      // FALSE), which triggers "Error 71 (Protocol error)" on Hyprland.
-      gtk_widget_set_opacity (GTK_WIDGET (window), 0.0);
-      kasasa_window_take_first_screencast (KASASA_WINDOW (window));
-    }
+    kasasa_window_take_first_screencast (KASASA_WINDOW (window));
   else
-    {
-      // Screenshots only need a portal file URI — unmap until the pin is ready.
-      gtk_widget_set_visible (GTK_WIDGET (window), FALSE);
-      kasasa_window_take_first_screenshot (KASASA_WINDOW (window));
-    }
+    kasasa_window_take_first_screenshot (KASASA_WINDOW (window));
 }
 
 static void
@@ -646,8 +637,8 @@ kasasa_application_init (KasasaApplication *self)
   g_application_set_option_context_description (
     G_APPLICATION (self),
     _("Capture modes:\n"
-      "  kasasa                              Take a screenshot through the Portal\n"
-      "  kasasa --screencast                 Start a screencast through the Portal\n"
+      "  kasasa                              Select a Hyprland window to capture\n"
+      "  kasasa --screencast                 Select a Hyprland window to preview live\n"
       "  kasasa --window=active              Capture the active Hyprland window\n"
       "  kasasa --screencast --monitor=active\n"
       "                                      Capture the active Hyprland monitor live\n"

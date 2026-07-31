@@ -62,6 +62,7 @@ kasasa_sources = [
   'kasasa-screencast-pipeline.c',
   'kasasa-content-container.c',
   'kasasa-window-query.c',
+  'kasasa-window-picker.c',
   'kasasa-hyprland-capture.c',
   'kasasa-hyprland-stream.c',
   'kasasa-wayland-stubs.c',

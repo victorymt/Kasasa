@@ -178,8 +178,8 @@ monitor_copy (const KasasaMonitor *src)
   return copy;
 }
 
-static KasasaWindowClient *
-client_copy (const KasasaWindowClient *src)
+KasasaWindowClient *
+kasasa_window_client_copy (const KasasaWindowClient *src)
 {
   KasasaWindowClient *copy;
 
@@ -619,7 +619,7 @@ collect_class_matches (GPtrArray   *clients,
     {
       KasasaWindowClient *client = g_ptr_array_index (clients, i);
       if (g_strcmp0 (client->class_name, class_name) == 0)
-        g_ptr_array_add (out, client_copy (client));
+        g_ptr_array_add (out, kasasa_window_client_copy (client));
     }
 }
 
@@ -634,7 +634,7 @@ collect_title_matches (GPtrArray   *clients,
     {
       KasasaWindowClient *client = g_ptr_array_index (clients, i);
       if (client->title != NULL && strstr (client->title, needle) != NULL)
-        g_ptr_array_add (out, client_copy (client));
+        g_ptr_array_add (out, kasasa_window_client_copy (client));
     }
 }
 
@@ -649,7 +649,7 @@ collect_address_matches (GPtrArray   *clients,
     {
       KasasaWindowClient *client = g_ptr_array_index (clients, i);
       if (address_equal (client->address, address))
-        g_ptr_array_add (out, client_copy (client));
+        g_ptr_array_add (out, kasasa_window_client_copy (client));
     }
 }
 
@@ -717,7 +717,7 @@ kasasa_window_query_resolve (const KasasaWindowSpec   *spec,
                                _("No active window"));
           return NULL;
         }
-      return client_copy (active);
+      return kasasa_window_client_copy (active);
 
     case KASASA_WINDOW_SPEC_ADDRESS:
       collect_address_matches (clients, spec->value, matches);

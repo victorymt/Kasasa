@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kasasa\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-31 00:04+0800\n"
+"POT-Creation-Date: 2026-07-31 16:32+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,7 +20,7 @@ msgstr ""
 
 #: data/io.github.kelvinnovais.Kasasa.desktop.in:2
 #: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:5
-#: src/kasasa-application.c:513 src/kasasa-window.ui:20
+#: src/kasasa-application.c:504 src/kasasa-window.ui:20
 msgid "Kasasa"
 msgstr ""
 
@@ -162,7 +162,7 @@ msgstr ""
 msgid "Targeted monitor screencast requires Hyprland Wayland"
 msgstr ""
 
-#: src/kasasa-application.c:517
+#: src/kasasa-application.c:508
 msgid ""
 "Snip and pin useful information\n"
 "\n"
@@ -170,51 +170,52 @@ msgid ""
 msgstr ""
 
 #. Translators: Replace "translator-credits" with your names, one name per line
-#: src/kasasa-application.c:525
+#: src/kasasa-application.c:516
 msgid "translator-credits"
 msgstr ""
 
-#: src/kasasa-application.c:585
+#: src/kasasa-application.c:576
 msgid "Start by pinning a screencast instead of a screenshot"
 msgstr ""
 
-#: src/kasasa-application.c:594
+#: src/kasasa-application.c:585
 msgid "List capturable windows (Hyprland) and exit"
 msgstr ""
 
-#: src/kasasa-application.c:603
+#: src/kasasa-application.c:594
 msgid "With a listing option, print JSON"
 msgstr ""
 
-#: src/kasasa-application.c:612
+#: src/kasasa-application.c:603
 msgid "Capture a window: class, title:…, address:…, or active"
 msgstr ""
 
-#: src/kasasa-application.c:613
+#: src/kasasa-application.c:604
 msgid "SPEC"
 msgstr ""
 
-#: src/kasasa-application.c:621
+#: src/kasasa-application.c:612
 msgid "List capturable monitors (Hyprland) and exit"
 msgstr ""
 
-#: src/kasasa-application.c:630
+#: src/kasasa-application.c:621
 msgid "Capture a monitor live: output name or active"
 msgstr ""
 
-#: src/kasasa-application.c:631
+#: src/kasasa-application.c:622
 msgid "NAME"
 msgstr ""
 
-#: src/kasasa-application.c:645
+#: src/kasasa-application.c:636
 msgid "Pin screenshots and screencasts above other windows"
 msgstr ""
 
-#: src/kasasa-application.c:648
+#: src/kasasa-application.c:639
 msgid ""
 "Capture modes:\n"
-"  kasasa                              Take a screenshot through the Portal\n"
-"  kasasa --screencast                 Start a screencast through the Portal\n"
+"  kasasa                              Select a Hyprland window to capture\n"
+"  kasasa --screencast                 Select a Hyprland window to preview "
+"live\n"
 "  kasasa --window=active              Capture the active Hyprland window\n"
 "  kasasa --screencast --monitor=active\n"
 "                                      Capture the active Hyprland monitor "
@@ -224,11 +225,11 @@ msgid ""
 "Native monitor capture requires --monitor together with --screencast."
 msgstr ""
 
-#: src/kasasa-window.c:1948
+#: src/kasasa-window.c:1951
 msgid "Unblock miniaturization"
 msgstr ""
 
-#: src/kasasa-window.c:1954 src/kasasa-window.ui:87
+#: src/kasasa-window.c:1957 src/kasasa-window.ui:87
 msgid "Block miniaturization"
 msgstr ""
 
@@ -252,119 +253,152 @@ msgstr ""
 msgid "_About Kasasa"
 msgstr ""
 
-#: src/kasasa-content-container.c:154
+#: src/kasasa-content-container.c:195
 msgid "A screencast is already active"
 msgstr ""
 
-#: src/kasasa-content-container.c:163
+#: src/kasasa-content-container.c:204
 msgid "Couldn't find the active monitor"
 msgstr ""
 
-#: src/kasasa-content-container.c:168 src/kasasa-content-container.c:1715
+#: src/kasasa-content-container.c:209 src/kasasa-content-container.c:1983
 msgid "Couldn't display the monitor"
 msgstr ""
 
-#: src/kasasa-content-container.c:179 src/kasasa-content-container.c:594
-#: src/kasasa-content-container.c:624 src/kasasa-content-container.c:638
-#: src/kasasa-content-container.c:651 src/kasasa-content-container.c:2050
+#: src/kasasa-content-container.c:220 src/kasasa-content-container.c:654
+#: src/kasasa-content-container.c:684 src/kasasa-content-container.c:698
+#: src/kasasa-content-container.c:711 src/kasasa-content-container.c:2296
 #, c-format
 msgid "Error: %s"
 msgstr ""
 
-#: src/kasasa-content-container.c:181 src/kasasa-content-container.c:596
-#: src/kasasa-content-container.c:608 src/kasasa-content-container.c:2052
+#: src/kasasa-content-container.c:222 src/kasasa-content-container.c:656
+#: src/kasasa-content-container.c:668 src/kasasa-content-container.c:2298
 msgid "Copy"
 msgstr ""
 
-#: src/kasasa-content-container.c:193
+#: src/kasasa-content-container.c:234
 msgid "GPU screencast unavailable. Switched to CPU."
 msgstr ""
 
-#: src/kasasa-content-container.c:204
+#: src/kasasa-content-container.c:245
 msgid ""
 "Hardware-accelerated preview unavailable. Switched to compatibility mode."
 msgstr ""
 
-#: src/kasasa-content-container.c:228
+#: src/kasasa-content-container.c:269
 msgid "Screenshot scheduled"
 msgstr ""
 
-#: src/kasasa-content-container.c:229
+#: src/kasasa-content-container.c:270
 #, c-format
 msgid "Screenshot in %u second"
 msgid_plural "Screenshot in %u seconds"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/kasasa-content-container.c:235 src/kasasa-content-container.c:1519
+#: src/kasasa-content-container.c:276 src/kasasa-content-container.c:1752
 msgid "Cancel"
 msgstr ""
 
-#: src/kasasa-content-container.c:605 src/kasasa-content-container.c:637
-#: src/kasasa-content-container.c:842 src/kasasa-content-container.c:1598
+#: src/kasasa-content-container.c:665 src/kasasa-content-container.c:697
+#: src/kasasa-content-container.c:1232 src/kasasa-content-container.c:1815
 msgid "Couldn't load the screenshot"
 msgstr ""
 
-#: src/kasasa-content-container.c:623
+#: src/kasasa-content-container.c:683
 msgid "Current content is not a screenshot"
+msgstr ""
+
+#: src/kasasa-content-container.c:776 src/kasasa-hyprland-capture.c:287
+msgid "Couldn't capture the window"
+msgstr ""
+
+#: src/kasasa-content-container.c:780 src/kasasa-content-container.c:1262
+#: src/kasasa-content-container.c:1841
+msgid "Screenshot failed"
+msgstr ""
+
+#: src/kasasa-content-container.c:852 src/kasasa-content-container.c:856
+msgid "Invalid Hyprland window address"
+msgstr ""
+
+#: src/kasasa-content-container.c:875 src/kasasa-content-container.c:1618
+#: src/kasasa-content-container.c:1624 src/kasasa-content-container.c:2034
+msgid "Couldn't display the screencast"
+msgstr ""
+
+#: src/kasasa-content-container.c:931
+msgid "Select a window to preview live"
+msgstr ""
+
+#: src/kasasa-content-container.c:932
+msgid "Select a window to capture"
+msgstr ""
+
+#: src/kasasa-content-container.c:956
+msgid "Maximum number of items reached"
+msgstr ""
+
+#: src/kasasa-content-container.c:966
+msgid "Live window preview requires Hyprland Wayland"
+msgstr ""
+
+#: src/kasasa-content-container.c:975
+msgid "Window capture requires Hyprland Wayland"
+msgstr ""
+
+#: src/kasasa-content-container.c:981
+msgid "Finish the current screencast before starting another one."
+msgstr ""
+
+#: src/kasasa-content-container.c:1011 src/kasasa-content-container.c:1017
+msgid "Couldn't open the window selector"
 msgstr ""
 
 #. translators: reason which the screenshot failed
 #. translators: reason which the screencast failed
-#: src/kasasa-content-container.c:835 src/kasasa-content-container.c:842
-#: src/kasasa-content-container.c:853 src/kasasa-content-container.c:1098
-#: src/kasasa-content-container.c:1597 src/kasasa-content-container.c:1608
-#: src/kasasa-content-container.c:1773
+#: src/kasasa-content-container.c:1225 src/kasasa-content-container.c:1232
+#: src/kasasa-content-container.c:1243 src/kasasa-content-container.c:1331
+#: src/kasasa-content-container.c:1814 src/kasasa-content-container.c:1825
+#: src/kasasa-content-container.c:2031
 msgid "Reason: "
 msgstr ""
 
-#: src/kasasa-content-container.c:872 src/kasasa-content-container.c:1624
-msgid "Screenshot failed"
-msgstr ""
-
-#: src/kasasa-content-container.c:1103 src/kasasa-content-container.c:1710
-#: src/kasasa-content-container.c:1799
+#: src/kasasa-content-container.c:1336 src/kasasa-content-container.c:1978
+#: src/kasasa-content-container.c:2052
 msgid "Screencast failed"
 msgstr ""
 
-#: src/kasasa-content-container.c:1186
+#: src/kasasa-content-container.c:1419
 msgid "The screencast service did not respond"
 msgstr ""
 
-#: src/kasasa-content-container.c:1269 src/kasasa-content-container.c:1275
+#: src/kasasa-content-container.c:1502 src/kasasa-content-container.c:1508
 msgid "Couldn't start the screencast"
 msgstr ""
 
-#: src/kasasa-content-container.c:1291 src/kasasa-content-container.c:1297
+#: src/kasasa-content-container.c:1524 src/kasasa-content-container.c:1530
 msgid "The screencast did not provide a video stream"
 msgstr ""
 
-#: src/kasasa-content-container.c:1313 src/kasasa-content-container.c:1319
+#: src/kasasa-content-container.c:1546 src/kasasa-content-container.c:1552
 msgid "The screencast provided invalid stream information"
 msgstr ""
 
-#: src/kasasa-content-container.c:1343 src/kasasa-content-container.c:1349
+#: src/kasasa-content-container.c:1576 src/kasasa-content-container.c:1582
 msgid "Couldn't connect to the screencast service"
 msgstr ""
 
-#: src/kasasa-content-container.c:1385 src/kasasa-content-container.c:1391
-#: src/kasasa-content-container.c:1776
-msgid "Couldn't display the screencast"
-msgstr ""
-
-#: src/kasasa-content-container.c:1461 src/kasasa-content-container.c:1467
+#: src/kasasa-content-container.c:1694 src/kasasa-content-container.c:1700
 msgid "Couldn't create the screencast"
 msgstr ""
 
-#: src/kasasa-content-container.c:1515
+#: src/kasasa-content-container.c:1748
 msgid "Waiting for screen selection…"
 msgstr ""
 
-#: src/kasasa-content-container.c:1555
-msgid "Finish the current screencast before starting another one."
-msgstr ""
-
-#: src/kasasa-content-container.c:2064
+#: src/kasasa-content-container.c:2310
 msgid "Copied to the clipboard"
 msgstr ""
 
@@ -418,10 +452,6 @@ msgstr ""
 
 #: src/kasasa-hyprland-capture.c:206
 msgid "The compositor provided an unsupported window frame format"
-msgstr ""
-
-#: src/kasasa-hyprland-capture.c:287
-msgid "Couldn't capture the window"
 msgstr ""
 
 #: src/kasasa-hyprland-capture.c:320
@@ -796,4 +826,24 @@ msgstr ""
 
 #: src/kasasa-window-query.c:881
 msgid "Candidates:"
+msgstr ""
+
+#: src/kasasa-window-picker.c:125
+msgid "Untitled window"
+msgstr ""
+
+#: src/kasasa-window-picker.c:129
+msgid "Unknown app"
+msgstr ""
+
+#: src/kasasa-window-picker.c:131
+msgid "Unknown workspace"
+msgstr ""
+
+#: src/kasasa-window-picker.c:193
+msgid "No capturable Hyprland windows found"
+msgstr ""
+
+#: src/kasasa-window-picker.c:222
+msgid "Search windows"
 msgstr ""

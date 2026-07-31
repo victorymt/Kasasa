@@ -24,6 +24,8 @@
 #include <adwaita.h>
 #include <libportal/portal.h>
 
+#include "kasasa-window-picker.h"
+
 G_BEGIN_DECLS
 
 #define MAX_N_CONTENTS 5
@@ -81,6 +83,23 @@ typedef struct
   KasasaPortalStartScreencastSessionFinishFunc start_session_finish;
 } KasasaScreencastPortalOps;
 
+typedef struct
+{
+  gboolean (*screenshot_available) (void);
+  gboolean (*screencast_available) (void);
+  gboolean (*present_picker) (GtkWindow                  *parent,
+                              const gchar                *title,
+                              KasasaWindowPickerCallback  callback,
+                              gpointer                    user_data,
+                              GDestroyNotify              destroy,
+                              GError                    **error);
+  gchar *(*capture_screenshot) (const KasasaWindowClient *client,
+                                GError                  **error);
+  gboolean (*window_handle_from_address) (const gchar *address,
+                                          guint32     *handle,
+                                          GError     **error);
+} KasasaNativeCaptureOps;
+
 KasasaContentContainer *kasasa_content_container_new (void);
 gboolean kasasa_content_container_append_screenshot (KasasaContentContainer *cc,
                                                      const gchar            *uri,
@@ -92,6 +111,9 @@ void kasasa_content_container_set_screencast_portal_ops (
   KasasaContentContainer          *cc,
   const KasasaScreencastPortalOps *ops,
   guint                            create_timeout_ms);
+void kasasa_content_container_set_native_capture_ops (
+  KasasaContentContainer        *cc,
+  const KasasaNativeCaptureOps  *ops);
 gboolean kasasa_content_container_cancel_screencast_request (
   KasasaContentContainer *cc);
 
@@ -101,6 +123,12 @@ kasasa_content_container_carousel_set_interactive (KasasaContentContainer *cc,
 void kasasa_content_container_request_first_screenshot (KasasaContentContainer *cc);
 void kasasa_content_container_request_first_screencast (KasasaContentContainer *cc);
 void kasasa_content_container_request_screencast (KasasaContentContainer *cc);
+void kasasa_content_container_request_first_hyprland_screenshot (
+  KasasaContentContainer *cc);
+void kasasa_content_container_request_first_hyprland_screencast (
+  KasasaContentContainer *cc);
+void kasasa_content_container_request_hyprland_screencast (
+  KasasaContentContainer *cc);
 /* Load a local image URI as the first pin (Hyprland/grim path). */
 void kasasa_content_container_load_first_screenshot_uri (KasasaContentContainer *cc,
                                                          const gchar            *uri);

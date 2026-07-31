@@ -75,6 +75,11 @@ static GTask *fake_pending_screencast_create_task;
 static guint fake_screencast_create_calls;
 static guint fake_screencast_create_finish_calls;
 static guint fake_screencast_start_calls;
+static FakePortalResult fake_native_picker_result;
+static const gchar *fake_native_screenshot_uri;
+static gboolean fake_native_capture_error;
+static guint fake_native_picker_calls;
+static guint fake_native_capture_calls;
 static guint switch_resize_calls;
 static KasasaSwitchResizeMode last_switch_resize_mode;
 
@@ -188,6 +193,85 @@ static const KasasaScreencastPortalOps fake_screencast_portal_ops = {
   .create_session_finish = fake_create_screencast_session_finish,
   .start_session = fake_start_screencast_session,
   .start_session_finish = fake_start_screencast_session_finish,
+};
+
+static gboolean
+fake_native_available (void)
+{
+  return TRUE;
+}
+
+static gboolean
+fake_native_present_picker (GtkWindow                  *parent,
+                            const gchar                *title,
+                            KasasaWindowPickerCallback  callback,
+                            gpointer                    user_data,
+                            GDestroyNotify              destroy,
+                            GError                    **error)
+{
+  gchar address[] = "0x1234";
+  gchar class_name[] = "Test";
+  gchar window_title[] = "Test window";
+  gchar workspace_name[] = "1";
+  KasasaWindowClient client = {
+    .address = address,
+    .class_name = class_name,
+    .title = window_title,
+    .workspace_name = workspace_name,
+    .width = 640,
+    .height = 480,
+    .mapped = TRUE,
+  };
+
+  fake_native_picker_calls++;
+  if (fake_native_picker_result == FAKE_PORTAL_ERROR)
+    {
+      g_set_error_literal (error,
+                           G_IO_ERROR,
+                           G_IO_ERROR_FAILED,
+                           "native picker test error");
+      return FALSE;
+    }
+
+  callback (fake_native_picker_result == FAKE_PORTAL_CANCEL ? NULL : &client,
+            user_data);
+  if (destroy != NULL)
+    destroy (user_data);
+  return TRUE;
+}
+
+static gchar *
+fake_native_capture_screenshot (const KasasaWindowClient *client,
+                                GError                  **error)
+{
+  fake_native_capture_calls++;
+  if (fake_native_capture_error)
+    {
+      g_set_error_literal (error,
+                           G_IO_ERROR,
+                           G_IO_ERROR_FAILED,
+                           "native capture test error");
+      return NULL;
+    }
+
+  return g_strdup (fake_native_screenshot_uri);
+}
+
+static gboolean
+fake_native_window_handle (const gchar *address,
+                           guint32     *handle,
+                           GError     **error)
+{
+  *handle = 0x1234;
+  return TRUE;
+}
+
+static const KasasaNativeCaptureOps fake_native_capture_ops = {
+  .screenshot_available = fake_native_available,
+  .screencast_available = fake_native_available,
+  .present_picker = fake_native_present_picker,
+  .capture_screenshot = fake_native_capture_screenshot,
+  .window_handle_from_address = fake_native_window_handle,
 };
 
 /* The container state machine does not need real window animations. */
@@ -425,10 +509,17 @@ fixture_setup (Fixture *fixture,
   fake_screencast_create_calls = 0;
   fake_screencast_create_finish_calls = 0;
   fake_screencast_start_calls = 0;
+  fake_native_picker_result = FAKE_PORTAL_SUCCESS;
+  fake_native_screenshot_uri = fixture->image_uri;
+  fake_native_capture_error = FALSE;
+  fake_native_picker_calls = 0;
+  fake_native_capture_calls = 0;
   kasasa_content_container_set_screenshot_portal_ops (fixture->container,
                                                       &fake_portal_ops);
   kasasa_content_container_set_screencast_portal_ops (
     fixture->container, &fake_screencast_portal_ops, 1000);
+  kasasa_content_container_set_native_capture_ops (fixture->container,
+                                                   &fake_native_capture_ops);
 
   gtk_window_present (fixture->window);
   dispatch_pending_sources ();
@@ -530,7 +621,6 @@ test_inactive_screencast_does_not_block (Fixture *fixture,
 {
   GtkWidget *screenshot = append_screenshot (fixture);
   GtkWidget *screencast = GTK_WIDGET (kasasa_screencast_new ());
-  GTask *task;
 
   g_assert_false (kasasa_screencast_is_active (KASASA_SCREENCAST (screencast)));
   adw_carousel_append (fixture->carousel, screencast);
@@ -540,22 +630,13 @@ test_inactive_screencast_does_not_block (Fixture *fixture,
 
   g_assert_false (gtk_widget_get_visible (fixture->stop_screencast_button));
   g_assert_true (gtk_widget_get_sensitive (fixture->screencast_button));
+  fake_native_picker_result = FAKE_PORTAL_CANCEL;
   g_signal_emit_by_name (fixture->screencast_button, "clicked");
   dispatch_pending_sources ();
 
-  g_assert_cmpuint (fake_screencast_create_calls, ==, 1);
-  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
-  g_assert_true (kasasa_content_container_cancel_screencast_request (
-    fixture->container));
-  task = g_steal_pointer (&fake_pending_screencast_create_task);
-  g_task_return_new_error (task,
-                           G_IO_ERROR,
-                           G_IO_ERROR_CANCELLED,
-                           "inactive screencast test cancelled");
-  g_object_unref (task);
-  dispatch_pending_sources ();
-
-  g_assert_cmpuint (fake_screencast_create_finish_calls, ==, 1);
+  g_assert_cmpuint (fake_native_picker_calls, ==, 1);
+  g_assert_cmpuint (fake_screencast_create_calls, ==, 0);
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
   g_assert_true (gtk_widget_get_sensitive (fixture->screencast_button));
 }
 
@@ -756,24 +837,26 @@ test_portal_first_screenshot_cancel (Fixture *fixture,
 }
 
 static void
-test_portal_add_screenshot_error_restores_toolbar (Fixture *fixture,
+test_native_add_screenshot_error_restores_toolbar (Fixture *fixture,
                                                    gconstpointer user_data)
 {
-  fake_portal_result = FAKE_PORTAL_ERROR;
-  g_test_expect_message (NULL, G_LOG_LEVEL_WARNING, "*portal test error*");
+  fake_native_capture_error = TRUE;
+  g_test_expect_message (NULL,
+                         G_LOG_LEVEL_WARNING,
+                         "*native capture test error*");
 
   g_signal_emit_by_name (fixture->add_button, "clicked");
   dispatch_pending_sources ();
 
   g_test_assert_expected_messages ();
-  g_assert_cmpuint (fake_take_calls, ==, 1);
-  g_assert_cmpuint (fake_finish_calls, ==, 1);
+  g_assert_cmpuint (fake_native_picker_calls, ==, 1);
+  g_assert_cmpuint (fake_native_capture_calls, ==, 1);
   g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 0);
   g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
 }
 
 static void
-test_portal_retake_success_then_cancel (Fixture *fixture,
+test_native_retake_success_then_cancel (Fixture *fixture,
                                         gconstpointer user_data)
 {
   g_autofree gchar *replacement_path = NULL;
@@ -799,20 +882,22 @@ test_portal_retake_success_then_cancel (Fixture *fixture,
   g_assert_no_error (error);
   replacement_file = g_file_new_for_uri (replacement_uri);
 
-  fake_portal_uri = replacement_uri;
+  fake_native_screenshot_uri = replacement_uri;
   g_signal_emit_by_name (fixture->retake_button, "clicked");
   dispatch_pending_sources ();
 
-  g_assert_cmpuint (fake_take_calls, ==, 1);
+  g_assert_cmpuint (fake_native_picker_calls, ==, 1);
+  g_assert_cmpuint (fake_native_capture_calls, ==, 1);
   g_assert_true (g_file_equal (replacement_file,
                                kasasa_screenshot_get_file (screenshot)));
   g_assert_true (adw_carousel_get_interactive (fixture->carousel));
 
-  fake_portal_result = FAKE_PORTAL_CANCEL;
+  fake_native_picker_result = FAKE_PORTAL_CANCEL;
   g_signal_emit_by_name (fixture->retake_button, "clicked");
   dispatch_pending_sources ();
 
-  g_assert_cmpuint (fake_take_calls, ==, 2);
+  g_assert_cmpuint (fake_native_picker_calls, ==, 2);
+  g_assert_cmpuint (fake_native_capture_calls, ==, 1);
   g_assert_true (g_file_equal (replacement_file,
                                kasasa_screenshot_get_file (screenshot)));
   g_assert_true (adw_carousel_get_interactive (fixture->carousel));
@@ -858,12 +943,13 @@ test_delayed_screenshot_cancel_restores_state (Fixture *fixture,
   g_signal_emit_by_name (fixture->delayed_button, "clicked");
 
   g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_cmpuint (fake_native_picker_calls, ==, 1);
   g_assert_true (kasasa_content_container_cancel_delayed_screenshot (
     fixture->container));
   g_assert_false (kasasa_content_container_cancel_delayed_screenshot (
     fixture->container));
   g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
-  g_assert_cmpuint (fake_take_calls, ==, 0);
+  g_assert_cmpuint (fake_native_capture_calls, ==, 0);
 }
 
 static void
@@ -879,7 +965,7 @@ test_screencast_timeout_late_callback_and_retry (Fixture *fixture,
   g_test_expect_message (NULL,
                          G_LOG_LEVEL_WARNING,
                          "*screencast service did not respond*");
-  g_signal_emit_by_name (fixture->screencast_button, "clicked");
+  kasasa_content_container_request_screencast (fixture->container);
   g_assert_cmpuint (fake_screencast_create_calls, ==, 1);
   g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
   wait_for_widget_sensitivity (fixture->toolbar_overlay, TRUE, 500);
@@ -890,7 +976,7 @@ test_screencast_timeout_late_callback_and_retry (Fixture *fixture,
   old_task = g_steal_pointer (&fake_pending_screencast_create_task);
   kasasa_content_container_set_screencast_portal_ops (
     fixture->container, &fake_screencast_portal_ops, 1000);
-  g_signal_emit_by_name (fixture->screencast_button, "clicked");
+  kasasa_content_container_request_screencast (fixture->container);
   g_assert_cmpuint (fake_screencast_create_calls, ==, 2);
   g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
   g_assert_nonnull (fake_pending_screencast_create_task);
@@ -969,13 +1055,13 @@ main (int argc, char **argv)
   g_test_add ("/gtk/content-container/portal-first-cancel",
               Fixture, NULL, fixture_setup,
               test_portal_first_screenshot_cancel, fixture_teardown);
-  g_test_add ("/gtk/content-container/portal-add-error-restores-toolbar",
+  g_test_add ("/gtk/content-container/native-add-error-restores-toolbar",
               Fixture, NULL, fixture_setup,
-              test_portal_add_screenshot_error_restores_toolbar,
+              test_native_add_screenshot_error_restores_toolbar,
               fixture_teardown);
-  g_test_add ("/gtk/content-container/portal-retake-success-cancel",
+  g_test_add ("/gtk/content-container/native-retake-success-cancel",
               Fixture, NULL, fixture_setup,
-              test_portal_retake_success_then_cancel, fixture_teardown);
+              test_native_retake_success_then_cancel, fixture_teardown);
   g_test_add ("/gtk/content-container/portal-callback-after-dispose",
               Fixture, NULL, fixture_setup,
               test_portal_callback_after_dispose, fixture_teardown);

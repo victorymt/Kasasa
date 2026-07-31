@@ -31,9 +31,10 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > bind = SUPER SHIFT, Y, exec, kasasa --screencast
 > ```
 >
-> `kasasa` starts with an interactive screenshot. `kasasa --screencast` (or
-> `-c`) starts directly with the screencast picker. If Kasasa is already
-> running, `--screencast` appends a new screencast to the existing window.
+> `kasasa` opens a Hyprland window picker for a screenshot.
+> `kasasa --screencast` (or `-c`) opens the same picker for a live preview. If
+> Kasasa is already running, `--screencast` appends a new live preview to the
+> existing window.
 >
 > On Hyprland you can also list windows and pin a specific one without the
 > interactive picker (needs `hyprctl` and a Hyprland Wayland session):
@@ -50,7 +51,7 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > Bare `--window=NAME` matches `class` first, then title substring. Multiple
 > matches print candidates and exit with status 2.
 >
-> Live pin of a specific window (Hyprland toplevel-export, no Portal picker):
+> Live pin of a specific window without opening the interactive picker:
 >
 > ```
 > kasasa --screencast --window=Alacritty
@@ -58,14 +59,14 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > kasasa --screencast --window=active
 > ```
 >
-> Targeted window previews use a three-buffer GBM pool and import each
+> Window previews use a three-buffer GBM pool and import each
 > DMA-BUF directly as a `GdkTexture`; GStreamer and intermediate GL conversion
 > are bypassed on this path. Rotation and Y inversion are applied by the GTK
 > snapshot transform. Kasasa falls back to `wl_shm` when allocation or GTK
 > import is unavailable.
 >
-> Hyprland-native monitor capture is also available. It bypasses Portal and
-> captures the named output directly:
+> Native monitor capture is also available and captures the named output
+> directly:
 >
 > ```
 > kasasa --list-monitors
@@ -80,22 +81,17 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 ## Screencast
 
 Start a live pin from the toolbar, or launch Kasasa with
-`kasasa --screencast` (`-c`). The desktop portal lets you choose either an
-entire screen or an individual window.
+`kasasa --screencast` (`-c`). Kasasa lists capturable Hyprland windows itself
+and streams the selected window through the native toplevel-export protocol.
 
 On Hyprland, **More actions → Active monitor (Hyprland)** captures the active
-monitor through Wayland's native image-copy-capture protocol without opening
-the Portal picker. The regular **Screencast** action remains Portal-based, so
-it can still interactively select a screen or a window.
+monitor through Wayland's native image-copy-capture protocol. Window and
+monitor capture do not use the desktop Portal.
 
 - Live previews default to a 30 FPS limit. Choose any limit from 1 to 120 FPS
   under **Preferences → Screencast → Frame rate limit**; the new value applies
-  when the next screencast starts, for both Portal and Hyprland-native capture.
-  Kasasa prefers the GPU-accelerated GL pipeline when it is available and
-  falls back to CPU rendering when necessary.
-- Capturing a screen that also contains the Kasasa window creates a recursive
-  preview and requires extra rendering work. Select a window, or move Kasasa
-  off the captured screen, when recursion is not wanted.
+  when the next screencast starts. Kasasa prefers direct DMA-BUF import and
+  falls back to shared-memory frames when necessary.
 - Move the pointer over the live pin to reveal its bottom-right controls, then
   click the stop icon (tooltip: **Stop screencast**) to finish it and release
   the capture session.
@@ -103,8 +99,8 @@ it can still interactively select a screen or a window.
   starting another one.
 
 > [!IMPORTANT]
-> On GNOME versions < 46, a dialog will appear to set up and take the screenshot,
-> instead of directly using the GNOME's screenshoter; this may be inconvenient. 
+> Window selection and capture require Hyprland, `hyprctl`, and the Hyprland
+> toplevel-export Wayland protocol.
 
 ## Building
 

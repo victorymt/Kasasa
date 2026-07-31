@@ -15,3 +15,4 @@ src/kasasa-screenshot.c
 src/kasasa-preferences.c
 src/kasasa-preferences.ui
 src/kasasa-window-query.c
+src/kasasa-window-picker.c

@@ -116,21 +116,24 @@ void
 kasasa_window_take_first_screenshot (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));
-  kasasa_content_container_request_first_screenshot (self->content_container);
+  kasasa_content_container_request_first_hyprland_screenshot (
+    self->content_container);
 }
 
 void
 kasasa_window_take_first_screencast (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));
-  kasasa_content_container_request_first_screencast (self->content_container);
+  kasasa_content_container_request_first_hyprland_screencast (
+    self->content_container);
 }
 
 void
 kasasa_window_request_screencast (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));
-  kasasa_content_container_request_screencast (self->content_container);
+  kasasa_content_container_request_hyprland_screencast (
+    self->content_container);
 }
 
 void
@@ -781,9 +784,9 @@ resize_window_scaling (KasasaWindow *self,
   self->pending_content_height = new_height;
   self->pending_content_width = new_width;
 
-  // On Wayland the surface/monitor often is not ready while the window is still
-  // hidden for the portal screenshot. Defer until mapped instead of applying a
-  // broken size that later "jumps" on the first scroll.
+  // On Wayland the surface/monitor often is not ready during initial capture.
+  // Defer until mapped instead of applying a broken size that later "jumps" on
+  // the first scroll.
   if (!gtk_widget_get_mapped (GTK_WIDGET (self)))
     {
       self->pending_resize = TRUE;

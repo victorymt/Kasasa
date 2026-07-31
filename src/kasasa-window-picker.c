@@ -1,0 +1,258 @@
+/* kasasa-window-picker.c
+ *
+ * Copyright 2026 victorymt
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#include <glib/gi18n.h>
+#include <string.h>
+
+#include "kasasa-window-picker.h"
+
+typedef struct
+{
+  GPtrArray                  *clients;
+  GtkSearchEntry             *search_entry;
+  GtkListBox                 *list;
+  KasasaWindowPickerCallback  callback;
+  gpointer                    user_data;
+  GDestroyNotify              destroy;
+  gboolean                    completed;
+} KasasaWindowPickerData;
+
+static void
+picker_data_free (KasasaWindowPickerData *data)
+{
+  if (data->destroy != NULL)
+    data->destroy (data->user_data);
+
+  g_clear_pointer (&data->clients, g_ptr_array_unref);
+  g_free (data);
+}
+
+static gboolean
+matches_search (const gchar *text,
+                const gchar *query)
+{
+  g_autofree gchar *folded_text = NULL;
+  g_autofree gchar *folded_query = NULL;
+
+  if (query == NULL || *query == '\0')
+    return TRUE;
+  if (text == NULL)
+    return FALSE;
+
+  folded_text = g_utf8_casefold (text, -1);
+  folded_query = g_utf8_casefold (query, -1);
+  return strstr (folded_text, folded_query) != NULL;
+}
+
+static gboolean
+filter_window_row (GtkListBoxRow *row,
+                   gpointer       user_data)
+{
+  KasasaWindowPickerData *data = user_data;
+  KasasaWindowClient *client = g_object_get_data (G_OBJECT (row),
+                                                   "kasasa-window-client");
+  const gchar *query = gtk_editable_get_text (GTK_EDITABLE (data->search_entry));
+
+  return matches_search (client->title, query)
+         || matches_search (client->class_name, query)
+         || matches_search (client->workspace_name, query);
+}
+
+static void
+on_search_changed (GtkSearchEntry          *entry,
+                   KasasaWindowPickerData *data)
+{
+  gtk_list_box_invalidate_filter (data->list);
+}
+
+static void
+on_window_row_activated (GtkListBox             *list,
+                         GtkListBoxRow          *row,
+                         KasasaWindowPickerData *data)
+{
+  GtkRoot *root;
+  g_autoptr (KasasaWindowClient) client = NULL;
+
+  if (data->completed)
+    return;
+
+  client = kasasa_window_client_copy (
+    g_object_get_data (G_OBJECT (row), "kasasa-window-client"));
+  root = gtk_widget_get_root (GTK_WIDGET (list));
+  if (root != NULL)
+    g_object_ref (root);
+  data->completed = TRUE;
+  data->callback (client, data->user_data);
+
+  if (GTK_IS_WINDOW (root))
+    gtk_window_destroy (GTK_WINDOW (root));
+  g_clear_object (&root);
+}
+
+static gboolean
+on_picker_close_request (GtkWindow              *window,
+                         KasasaWindowPickerData *data)
+{
+  if (!data->completed)
+    {
+      data->completed = TRUE;
+      data->callback (NULL, data->user_data);
+    }
+
+  return FALSE;
+}
+
+static GtkWidget *
+create_window_row (KasasaWindowClient *client)
+{
+  GtkWidget *row = gtk_list_box_row_new ();
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  GtkWidget *text_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
+  GtkWidget *icon = gtk_image_new_from_icon_name ("window-symbolic");
+  GtkWidget *title = gtk_label_new (NULL);
+  GtkWidget *details = gtk_label_new (NULL);
+  g_autofree gchar *detail_text = NULL;
+  const gchar *display_title;
+
+  display_title = client->title != NULL && *client->title != '\0'
+                  ? client->title
+                  : client->class_name;
+  if (display_title == NULL || *display_title == '\0')
+    display_title = _("Untitled window");
+
+  detail_text = g_strdup_printf ("%s  |  %s  |  %dx%d",
+                                 client->class_name != NULL
+                                   ? client->class_name : _("Unknown app"),
+                                 client->workspace_name != NULL
+                                   ? client->workspace_name : _("Unknown workspace"),
+                                 client->width,
+                                 client->height);
+
+  gtk_widget_set_margin_start (box, 12);
+  gtk_widget_set_margin_end (box, 12);
+  gtk_widget_set_margin_top (box, 10);
+  gtk_widget_set_margin_bottom (box, 10);
+  gtk_widget_set_valign (icon, GTK_ALIGN_CENTER);
+  gtk_image_set_pixel_size (GTK_IMAGE (icon), 24);
+
+  gtk_label_set_text (GTK_LABEL (title), display_title);
+  gtk_label_set_xalign (GTK_LABEL (title), 0.0f);
+  gtk_label_set_ellipsize (GTK_LABEL (title), PANGO_ELLIPSIZE_END);
+  gtk_widget_add_css_class (title, "heading");
+
+  gtk_label_set_text (GTK_LABEL (details), detail_text);
+  gtk_label_set_xalign (GTK_LABEL (details), 0.0f);
+  gtk_label_set_ellipsize (GTK_LABEL (details), PANGO_ELLIPSIZE_END);
+  gtk_widget_add_css_class (details, "dim-label");
+
+  gtk_widget_set_hexpand (text_box, TRUE);
+  gtk_box_append (GTK_BOX (text_box), title);
+  gtk_box_append (GTK_BOX (text_box), details);
+  gtk_box_append (GTK_BOX (box), icon);
+  gtk_box_append (GTK_BOX (box), text_box);
+  gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), box);
+  g_object_set_data (G_OBJECT (row), "kasasa-window-client", client);
+
+  return row;
+}
+
+gboolean
+kasasa_window_picker_present (GtkWindow                  *parent,
+                              const gchar                *title,
+                              KasasaWindowPickerCallback  callback,
+                              gpointer                    user_data,
+                              GDestroyNotify              destroy,
+                              GError                    **error)
+{
+  g_autoptr (GPtrArray) clients = NULL;
+  KasasaWindowPickerData *data;
+  GtkApplication *application;
+  GtkWidget *window;
+  GtkWidget *header;
+  GtkWidget *content;
+  GtkWidget *search;
+  GtkWidget *scroller;
+  GtkWidget *list;
+  guint i;
+
+  g_return_val_if_fail (GTK_IS_WINDOW (parent), FALSE);
+  g_return_val_if_fail (callback != NULL, FALSE);
+
+  clients = kasasa_window_query_list_clients (error);
+  if (clients == NULL)
+    return FALSE;
+  if (clients->len == 0)
+    {
+      g_set_error_literal (error,
+                           KASASA_WINDOW_QUERY_ERROR,
+                           KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
+                           _("No capturable Hyprland windows found"));
+      return FALSE;
+    }
+
+  data = g_new0 (KasasaWindowPickerData, 1);
+  data->clients = g_steal_pointer (&clients);
+  data->callback = callback;
+  data->user_data = user_data;
+  data->destroy = destroy;
+
+  window = adw_window_new ();
+  application = gtk_window_get_application (parent);
+  if (application != NULL)
+    gtk_window_set_application (GTK_WINDOW (window), application);
+  gtk_window_set_title (GTK_WINDOW (window), title);
+  gtk_window_set_default_size (GTK_WINDOW (window), 520, 560);
+  gtk_window_set_modal (GTK_WINDOW (window), TRUE);
+  gtk_window_set_transient_for (GTK_WINDOW (window), parent);
+  gtk_window_set_destroy_with_parent (GTK_WINDOW (window), TRUE);
+
+  header = adw_header_bar_new ();
+  content = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+  search = gtk_search_entry_new ();
+  scroller = gtk_scrolled_window_new ();
+  list = gtk_list_box_new ();
+
+  gtk_widget_set_margin_start (search, 12);
+  gtk_widget_set_margin_end (search, 12);
+  gtk_search_entry_set_placeholder_text (GTK_SEARCH_ENTRY (search),
+                                         _("Search windows"));
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroller),
+                                  GTK_POLICY_NEVER,
+                                  GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (list), GTK_SELECTION_NONE);
+  gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (list), TRUE);
+  gtk_widget_add_css_class (list, "boxed-list");
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), list);
+
+  gtk_box_append (GTK_BOX (content), header);
+  gtk_box_append (GTK_BOX (content), search);
+  gtk_box_append (GTK_BOX (content), scroller);
+  adw_window_set_content (ADW_WINDOW (window), content);
+
+  data->search_entry = GTK_SEARCH_ENTRY (search);
+  data->list = GTK_LIST_BOX (list);
+  gtk_list_box_set_filter_func (GTK_LIST_BOX (list),
+                                filter_window_row,
+                                data,
+                                NULL);
+  for (i = 0; i < data->clients->len; i++)
+    gtk_list_box_append (GTK_LIST_BOX (list),
+                         create_window_row (g_ptr_array_index (data->clients, i)));
+
+  g_signal_connect (search, "search-changed", G_CALLBACK (on_search_changed), data);
+  g_signal_connect (list, "row-activated", G_CALLBACK (on_window_row_activated), data);
+  g_signal_connect (window, "close-request", G_CALLBACK (on_picker_close_request), data);
+  g_object_set_data_full (G_OBJECT (window),
+                          "kasasa-window-picker-data",
+                          data,
+                          (GDestroyNotify) picker_data_free);
+
+  gtk_window_present (GTK_WINDOW (window));
+  gtk_widget_grab_focus (search);
+  return TRUE;
+}
