@@ -72,15 +72,6 @@
       <default>3</default>
 	  </key>
 
-	  <!-- SCREENCAST PIPELINE -->
-	  <key name="screencast-pipeline" type="s">
-      <choices>
-        <choice value="cpu"/>
-        <choice value="gpu"/>
-      </choices>
-      <default>'gpu'</default>
-	  </key>
-
 	  <!-- SCREENCAST FRAME RATE -->
 	  <key name="screencast-framerate" type="u">
       <range min="1" max="120"/>

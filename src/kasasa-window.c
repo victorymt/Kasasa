@@ -116,8 +116,7 @@ void
 kasasa_window_take_first_screenshot (KasasaWindow *self)
 {
   g_return_if_fail (KASASA_IS_WINDOW (self));
-  kasasa_content_container_request_first_hyprland_screenshot (
-    self->content_container);
+  kasasa_content_container_request_first_screenshot (self->content_container);
 }
 
 void

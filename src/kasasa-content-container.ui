@@ -111,7 +111,7 @@
                             <property name="css-classes">flat</property>
                             <property name="halign">start</property>
                             <property name="icon-name">plus-large-symbolic</property>
-                            <property name="tooltip-text" translatable="yes">Add screenshot</property>
+                            <property name="tooltip-text" translatable="yes">Capture region</property>
                           </object>
                         </child>
                         <!-- Sub actions -->
@@ -127,6 +127,32 @@
                                 <property name="child">
                                   <object class="GtkBox">
                                     <property name="orientation">vertical</property>
+                                    <child>
+                                      <object class="GtkButton" id="add_window_screenshot_button">
+                                        <property name="css-classes">flat</property>
+                                        <property name="halign">fill</property>
+                                        <property name="child">
+                                          <object class="GtkBox">
+                                            <property name="margin-start">10</property>
+                                            <property name="margin-end">10</property>
+                                            <property name="margin-top">3</property>
+                                            <property name="margin-bottom">3</property>
+                                            <child>
+                                              <object class="GtkImage">
+                                                <property name="icon-name">screenshooter-symbolic</property>
+                                                <property name="margin-end">12</property>
+                                              </object>
+                                            </child>
+                                            <child>
+                                              <object class="GtkLabel">
+                                                <property name="label" translatable="yes">Window screenshot</property>
+                                                <property name="css-classes">body</property>
+                                              </object>
+                                            </child>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
                                     <child>
                                       <object class="GtkButton" id="add_delayed_screenshot_button">
                                         <property name="css-classes">flat</property>
@@ -145,7 +171,7 @@
                                             </child>
                                             <child>
                                               <object class="GtkLabel">
-                                                <property name="label" translatable="yes">Delayed screenshot</property>
+                                                <property name="label" translatable="yes">Delayed window screenshot</property>
                                                 <property name="css-classes">body</property>
                                               </object>
                                             </child>
@@ -172,7 +198,7 @@
                                             </child>
                                             <child>
                                               <object class="GtkLabel">
-                                                <property name="label" translatable="yes">Screencast</property>
+                                                <property name="label" translatable="yes">Live window</property>
                                                 <property name="css-classes">body</property>
                                               </object>
                                             </child>
@@ -199,7 +225,7 @@
                                             </child>
                                             <child>
                                               <object class="GtkLabel">
-                                                <property name="label" translatable="yes">Active monitor (Hyprland)</property>
+                                                <property name="label" translatable="yes">Live active monitor</property>
                                                 <property name="css-classes">body</property>
                                               </object>
                                             </child>

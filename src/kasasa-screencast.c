@@ -28,7 +28,6 @@
 #include "kasasa-dmabuf-paintable.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-screencast.h"
-#include "kasasa-screencast-pipeline.h"
 
 // Default dimensions
 #define DEFAULT_WIDTH  360
@@ -49,7 +48,6 @@ enum
 {
   SIGNAL_NEW_DIMENSION,
   SIGNAL_EOS,
-  SIGNAL_CPU_FALLBACK,
   SIGNAL_DMABUF_FALLBACK,
 
   N_SIGNALS
@@ -86,16 +84,9 @@ struct _KasasaScreencast
   GstElement              *appsrc;
   GstBufferPool           *frame_pool;
   GstBus                  *bus;
-  XdpSession              *session;
   KasasaHyprlandStream    *hypr_stream;
-  gulong                   closed_handler_id;
   gboolean                 finished;
-  gboolean                 using_gpu_pipeline;
-  gboolean                 gpu_fallback_attempted;
-  gboolean                 cpu_fallback_notified;
   gboolean                 dmabuf_fallback_notified;
-  guint                    portal_node_id;
-  guint                    fallback_source;
   gint                     dimension[DIMENSION_N_ELEMENTS];
   gint                     stream_width;
   gint                     stream_height;
@@ -116,33 +107,6 @@ G_DEFINE_TYPE_WITH_CODE (KasasaScreencast, kasasa_screencast, ADW_TYPE_BIN,
                                                 kasasa_screencast_content_interface_init))
 
 static void clear_gstreamer_pipeline (KasasaScreencast *self);
-static gboolean retry_portal_cpu_idle (gpointer user_data);
-
-static gchar *
-get_screencast_pipeline_preference (void)
-{
-  GSettingsSchemaSource *schema_source;
-  g_autoptr (GSettingsSchema) schema = NULL;
-  g_autoptr (GSettings) settings = NULL;
-
-  schema_source = g_settings_schema_source_get_default ();
-  if (schema_source != NULL)
-    schema = g_settings_schema_source_lookup (
-      schema_source,
-      "io.github.kelvinnovais.Kasasa",
-      TRUE);
-
-  if (schema == NULL
-      || !g_settings_schema_has_key (schema, "screencast-pipeline"))
-    {
-      g_message ("The installed settings schema has no screencast-pipeline "
-                 "key; using the GPU pipeline preference");
-      return g_strdup ("gpu");
-    }
-
-  settings = g_settings_new_full (schema, NULL, NULL);
-  return g_settings_get_string (settings, "screencast-pipeline");
-}
 
 static guint
 get_screencast_frame_rate (void)
@@ -170,16 +134,6 @@ get_screencast_frame_rate (void)
   settings = g_settings_new_full (schema, NULL, NULL);
   frame_rate = g_settings_get_uint (settings, "screencast-framerate");
   return CLAMP (frame_rate, 1U, MAX_SCREENCAST_FRAME_RATE);
-}
-
-static void
-emit_cpu_fallback (KasasaScreencast *self)
-{
-  if (self->cpu_fallback_notified)
-    return;
-
-  self->cpu_fallback_notified = TRUE;
-  g_signal_emit (self, obj_signals[SIGNAL_CPU_FALLBACK], 0);
 }
 
 static void
@@ -264,12 +218,6 @@ kasasa_screencast_finish (KasasaContent *content)
 
   self->finished = TRUE;
 
-  if (self->fallback_source != 0)
-    {
-      g_source_remove (self->fallback_source);
-      self->fallback_source = 0;
-    }
-
   set_no_screencast (self);
 
   if (self->hypr_stream != NULL)
@@ -279,33 +227,6 @@ kasasa_screencast_finish (KasasaContent *content)
     }
 
   clear_gstreamer_pipeline (self);
-
-  if (self->session)
-    {
-      if (self->closed_handler_id != 0)
-        {
-          g_signal_handler_disconnect (self->session, self->closed_handler_id);
-          self->closed_handler_id = 0;
-        }
-      xdp_session_close (self->session);
-      g_clear_object (&self->session);
-    }
-}
-
-static void
-on_session_closed (XdpSession *session,
-                    gpointer    user_data)
-{
-  KasasaScreencast *self = KASASA_SCREENCAST (user_data);
-
-  g_info ("Session closed");
-  self->closed_handler_id = 0;
-  g_clear_object (&self->session);
-
-  if (!self->finished)
-    g_signal_emit (self,
-                   obj_signals[SIGNAL_EOS],
-                   0);
 }
 
 static void
@@ -332,23 +253,6 @@ error_cb (GstBus           *bus,
   g_warning ("Error received from element %s: %s",
              GST_OBJECT_NAME (msg->src), error->message);
   g_warning ("Debugging information: %s", debug_info ? debug_info : "none");
-
-  if (self->using_gpu_pipeline && self->fallback_source != 0)
-    return;
-
-  if (self->using_gpu_pipeline
-      && !self->gpu_fallback_attempted
-      && self->session != NULL
-      && !self->finished)
-    {
-      self->gpu_fallback_attempted = TRUE;
-      g_warning ("GPU screencast failed; retrying with the CPU pipeline");
-      self->fallback_source = g_idle_add_full (G_PRIORITY_DEFAULT,
-                                               retry_portal_cpu_idle,
-                                               g_object_ref (self),
-                                               g_object_unref);
-      return;
-    }
 
   adw_status_page_set_title (self->no_screencast_page,
                              _("Screencast ended with error"));
@@ -568,8 +472,6 @@ queue_preview_frame_update (KasasaScreencast *self,
 static void
 clear_gstreamer_pipeline (KasasaScreencast *self)
 {
-  KasasaScreencastPipeline pipeline = { 0 };
-
   g_clear_object (&self->appsrc);
   clear_pending_preview_update (self);
   if (self->dmabuf_paintable != NULL)
@@ -588,10 +490,12 @@ clear_gstreamer_pipeline (KasasaScreencast *self)
       self->bus = NULL;
     }
 
-  pipeline.pipeline = self->pipeline;
-  self->pipeline = NULL;
-  self->using_gpu_pipeline = FALSE;
-  kasasa_screencast_pipeline_clear (&pipeline);
+  if (self->pipeline != NULL)
+    {
+      gst_element_set_state (self->pipeline, GST_STATE_NULL);
+      gst_object_unref (self->pipeline);
+      self->pipeline = NULL;
+    }
   clear_frame_pool (self);
 
   if (self->picture != NULL)
@@ -695,262 +599,6 @@ on_hypr_stream_error (gpointer      user_data,
                    (GDestroyNotify) stream_error_update_free);
 }
 
-static void
-screencast_weak_ref_free (GWeakRef *screencast_ref)
-{
-  g_weak_ref_clear (screencast_ref);
-  g_free (screencast_ref);
-}
-
-static GstPadProbeReturn
-log_pipewire_caps (GstPad          *pad,
-                   GstPadProbeInfo *info,
-                   gpointer         user_data)
-{
-  GWeakRef *screencast_ref = user_data;
-  KasasaScreencast *self;
-  GstEvent *event;
-  GstCaps *caps = NULL;
-  const GstStructure *structure;
-  g_autofree gchar *caps_string = NULL;
-  gint width;
-  gint height;
-
-  event = GST_PAD_PROBE_INFO_EVENT (info);
-  if (event == NULL || GST_EVENT_TYPE (event) != GST_EVENT_CAPS)
-    return GST_PAD_PROBE_OK;
-
-  gst_event_parse_caps (event, &caps);
-  caps_string = gst_caps_to_string (caps);
-  g_info ("PipeWire negotiated caps: %s", caps_string);
-
-  if (gst_caps_is_empty (caps))
-    return GST_PAD_PROBE_OK;
-
-  structure = gst_caps_get_structure (caps, 0);
-  if (!gst_structure_get_int (structure, "width", &width)
-      || !gst_structure_get_int (structure, "height", &height)
-      || width <= 0 || height <= 0)
-    return GST_PAD_PROBE_OK;
-
-  self = g_weak_ref_get (screencast_ref);
-  if (self == NULL)
-    return GST_PAD_PROBE_OK;
-
-  queue_stream_size_update (self, width, height);
-  g_object_unref (self);
-
-  return GST_PAD_PROBE_OK;
-}
-
-static gboolean
-activate_portal_pipeline (KasasaScreencast             *self,
-                          gint                          fd,
-                          guint                         node_id,
-                          KasasaScreencastPipelineMode  mode,
-                          GError                      **error)
-{
-  KasasaScreencastPipeline pipeline = { 0 };
-  g_autoptr (GstElement) pipewire = NULL;
-  g_autoptr (GstPad) pipewire_src_pad = NULL;
-  GWeakRef *screencast_ref;
-  GstStateChangeReturn ret;
-
-  if (!kasasa_screencast_pipeline_build_portal (fd,
-                                                node_id,
-                                                mode,
-                                                self->frame_rate,
-                                                &pipeline,
-                                                error))
-    return FALSE;
-
-  self->pipeline = pipeline.pipeline;
-  pipeline.pipeline = NULL;
-
-  self->bus = gst_element_get_bus (self->pipeline);
-  if (self->bus == NULL)
-    {
-      kasasa_screencast_pipeline_clear (&pipeline);
-      clear_gstreamer_pipeline (self);
-      return set_screencast_error (error,
-                                   G_IO_ERROR_FAILED,
-                                   _("The screencast pipeline has no message bus"));
-    }
-
-  gst_bus_add_signal_watch (self->bus);
-  g_signal_connect (self->bus, "message::error", G_CALLBACK (error_cb), self);
-  g_signal_connect (self->bus, "message::eos", G_CALLBACK (eos_cb), self);
-
-  pipewire = gst_bin_get_by_name (GST_BIN (self->pipeline),
-                                  "pipewire_element");
-  if (pipewire != NULL)
-    pipewire_src_pad = gst_element_get_static_pad (pipewire, "src");
-  if (pipewire_src_pad != NULL)
-    {
-      screencast_ref = g_new0 (GWeakRef, 1);
-      g_weak_ref_init (screencast_ref, self);
-      gst_pad_add_probe (pipewire_src_pad,
-                         GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
-                         log_pipewire_caps,
-                         screencast_ref,
-                         (GDestroyNotify) screencast_weak_ref_free);
-    }
-
-  self->using_gpu_pipeline = mode == KASASA_SCREENCAST_PIPELINE_GPU;
-  ret = gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
-  if (ret == GST_STATE_CHANGE_FAILURE)
-    {
-      kasasa_screencast_pipeline_clear (&pipeline);
-      clear_gstreamer_pipeline (self);
-      return set_screencast_error (error,
-                                   G_IO_ERROR_FAILED,
-                                   _("The screencast pipeline could not be started"));
-    }
-
-  gtk_picture_set_paintable (self->picture, pipeline.paintable);
-  kasasa_screencast_pipeline_clear (&pipeline);
-  g_info ("Screencast pipeline uses %s path at up to %u FPS",
-          mode == KASASA_SCREENCAST_PIPELINE_GPU
-          ? "DMA-BUF/GL display without CPU analysis"
-          : "system-memory fallback",
-          self->frame_rate);
-
-  return TRUE;
-}
-
-static void
-emit_pipeline_error (KasasaScreencast *self,
-                     const GError     *error)
-{
-  g_warning ("CPU screencast fallback failed: %s",
-             error != NULL ? error->message : "unknown error");
-  adw_status_page_set_title (self->no_screencast_page,
-                             _("Screencast ended with error"));
-  if (!self->finished)
-    g_signal_emit (self, obj_signals[SIGNAL_EOS], 0);
-}
-
-static gboolean
-retry_portal_cpu_idle (gpointer user_data)
-{
-  KasasaScreencast *self = KASASA_SCREENCAST (user_data);
-  g_autoptr (GError) error = NULL;
-  gint fd;
-
-  self->fallback_source = 0;
-  if (self->finished || self->session == NULL)
-    return G_SOURCE_REMOVE;
-
-  clear_gstreamer_pipeline (self);
-  fd = xdp_session_open_pipewire_remote (self->session);
-  if (fd < 0)
-    {
-      g_set_error_literal (&error,
-                           G_IO_ERROR,
-                           G_IO_ERROR_FAILED,
-                           "Unable to reopen the PipeWire connection");
-      emit_pipeline_error (self, error);
-      return G_SOURCE_REMOVE;
-    }
-
-  if (!activate_portal_pipeline (self,
-                                 fd,
-                                 self->portal_node_id,
-                                 KASASA_SCREENCAST_PIPELINE_CPU,
-                                 &error))
-    {
-      emit_pipeline_error (self, error);
-      return G_SOURCE_REMOVE;
-    }
-
-  emit_cpu_fallback (self);
-  return G_SOURCE_REMOVE;
-}
-
-gboolean
-kasasa_screencast_show (KasasaScreencast *self,
-                        XdpSession       *session,
-                        gint              fd,
-                        guint             node_id,
-                        gint              expected_width,
-                        gint              expected_height,
-                        GError           **error)
-
-{
-  KasasaScreencastPipelineMode mode;
-  g_autoptr (GError) pipeline_error = NULL;
-  g_autofree gchar *pipeline_preference = NULL;
-  gboolean gpu_requested;
-  gint fallback_fd;
-
-  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
-  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
-
-  if (session == NULL || fd < 0 || self->pipeline != NULL
-      || self->session != NULL || self->hypr_stream != NULL)
-    {
-      if (fd >= 0)
-        close (fd);
-      return set_screencast_error (error,
-                                   G_IO_ERROR_INVALID_ARGUMENT,
-                                   _("Invalid screencast connection"));
-    }
-
-  self->finished = FALSE;
-  self->session = session;
-  self->portal_node_id = node_id;
-  self->gpu_fallback_attempted = FALSE;
-  self->cpu_fallback_notified = FALSE;
-  self->frame_rate = get_screencast_frame_rate ();
-
-  if (expected_width > 0 && expected_height > 0)
-    new_dimension (self, expected_width, expected_height);
-
-  pipeline_preference = get_screencast_pipeline_preference ();
-  gpu_requested = g_strcmp0 (pipeline_preference, "gpu") == 0;
-  mode = kasasa_screencast_pipeline_select_mode (pipeline_preference);
-  if (!activate_portal_pipeline (self, fd, node_id, mode, &pipeline_error)
-      && mode == KASASA_SCREENCAST_PIPELINE_GPU)
-    {
-      g_warning ("Unable to start the GPU screencast pipeline: %s",
-                 pipeline_error != NULL ? pipeline_error->message : "unknown error");
-      g_clear_error (&pipeline_error);
-      self->gpu_fallback_attempted = TRUE;
-      fallback_fd = xdp_session_open_pipewire_remote (self->session);
-      if (fallback_fd >= 0)
-        activate_portal_pipeline (self,
-                                  fallback_fd,
-                                  node_id,
-                                  KASASA_SCREENCAST_PIPELINE_CPU,
-                                  &pipeline_error);
-    }
-
-  if (self->pipeline == NULL)
-    {
-      if (pipeline_error != NULL)
-        g_propagate_error (error, g_steal_pointer (&pipeline_error));
-      else
-        set_screencast_error (error,
-                              G_IO_ERROR_FAILED,
-                              _("The screencast pipeline could not be started"));
-      xdp_session_close (self->session);
-      g_clear_object (&self->session);
-      self->finished = TRUE;
-      return FALSE;
-    }
-
-  if (gpu_requested && !self->using_gpu_pipeline)
-    emit_cpu_fallback (self);
-
-  gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
-
-  self->closed_handler_id = g_signal_connect (self->session,
-                                              "closed",
-                                              G_CALLBACK (on_session_closed),
-                                              self);
-
-  return TRUE;
-}
 
 static const gchar *
 hypr_stream_format_name (KasasaHyprlandStreamFormat format)
@@ -1450,7 +1098,6 @@ show_hyprland_source (KasasaScreencast *self,
                                    G_IO_ERROR_FAILED,
                                    _("The screencast pipeline could not be linked"));
     }
-  self->using_gpu_pipeline = FALSE;
   gtk_picture_set_paintable (self->picture, paintable);
 
   self->bus = gst_element_get_bus (self->pipeline);
@@ -1634,16 +1281,6 @@ kasasa_screencast_class_init (KasasaScreencastClass *klass)
                   G_TYPE_NONE,            // no return value
                   0);                     // no argument
 
-  obj_signals[SIGNAL_CPU_FALLBACK] =
-    g_signal_new ("cpu-fallback",
-                  KASASA_TYPE_SCREENCAST,
-                  G_SIGNAL_RUN_LAST,
-                  0,
-                  NULL, NULL,
-                  NULL,
-                  G_TYPE_NONE,
-                  0);
-
   obj_signals[SIGNAL_DMABUF_FALLBACK] =
     g_signal_new ("dmabuf-fallback",
                   KASASA_TYPE_SCREENCAST,
@@ -1666,8 +1303,6 @@ kasasa_screencast_init (KasasaScreencast *self)
 {
   self->pipeline = NULL;
   self->bus = NULL;
-  self->fallback_source = 0;
-  self->closed_handler_id = 0;
   self->finished = TRUE;
   self->frame_rate = DEFAULT_SCREENCAST_FRAME_RATE;
   g_mutex_init (&self->preview_update_lock);

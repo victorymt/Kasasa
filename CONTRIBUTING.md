@@ -3,7 +3,7 @@
 ## Building
 
 Install a C compiler, Meson, Ninja, and the required development dependencies,
-including GTK 4, Libadwaita, libportal, GStreamer, JSON-GLib, Wayland client,
+including GTK 4, Libadwaita, GStreamer, JSON-GLib, Wayland client,
 and `wayland-protocols`, then configure and build the project:
 
 ```sh

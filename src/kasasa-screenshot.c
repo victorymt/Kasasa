@@ -34,6 +34,7 @@ struct _KasasaScreenshot
   GtkPicture             *picture;
   gint                    image_height;
   gint                    image_width;
+  KasasaScreenshotSource  source;
 };
 
 static void kasasa_screenshot_content_interface_init (KasasaContentInterface *iface);
@@ -47,6 +48,22 @@ kasasa_screenshot_get_file (KasasaScreenshot *self)
 {
   g_return_val_if_fail (KASASA_IS_SCREENSHOT (self), NULL);
   return self->file;
+}
+
+void
+kasasa_screenshot_set_source (KasasaScreenshot       *self,
+                              KasasaScreenshotSource  source)
+{
+  g_return_if_fail (KASASA_IS_SCREENSHOT (self));
+  self->source = source;
+}
+
+KasasaScreenshotSource
+kasasa_screenshot_get_source (KasasaScreenshot *self)
+{
+  g_return_val_if_fail (KASASA_IS_SCREENSHOT (self),
+                        KASASA_SCREENSHOT_SOURCE_REGION);
+  return self->source;
 }
 
 static void
@@ -224,6 +241,7 @@ kasasa_screenshot_class_init (KasasaScreenshotClass *klass)
 static void
 kasasa_screenshot_init (KasasaScreenshot *self)
 {
+  self->source = KASASA_SCREENSHOT_SOURCE_REGION;
   self->picture = GTK_PICTURE (gtk_picture_new ());
 
   /* Allocation switches to FILL when only pixel rounding differs. */

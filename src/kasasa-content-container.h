@@ -22,7 +22,6 @@
 #pragma once
 
 #include <adwaita.h>
-#include <libportal/portal.h>
 
 #include "kasasa-window-picker.h"
 
@@ -33,55 +32,6 @@ G_BEGIN_DECLS
 #define KASASA_TYPE_CONTENT_CONTAINER (kasasa_content_container_get_type ())
 
 G_DECLARE_FINAL_TYPE (KasasaContentContainer, kasasa_content_container, KASASA, CONTENT_CONTAINER, AdwBreakpointBin)
-
-typedef void (*KasasaPortalTakeScreenshotFunc) (XdpPortal           *portal,
-                                                XdpParent           *parent,
-                                                XdpScreenshotFlags   flags,
-                                                GCancellable        *cancellable,
-                                                GAsyncReadyCallback  callback,
-                                                gpointer             data);
-typedef gchar *(*KasasaPortalTakeScreenshotFinishFunc) (XdpPortal    *portal,
-                                                        GAsyncResult *result,
-                                                        GError      **error);
-
-typedef struct
-{
-  KasasaPortalTakeScreenshotFunc take_screenshot;
-  KasasaPortalTakeScreenshotFinishFunc take_screenshot_finish;
-} KasasaScreenshotPortalOps;
-
-typedef void (*KasasaPortalCreateScreencastSessionFunc) (
-  XdpPortal          *portal,
-  XdpOutputType       outputs,
-  XdpScreencastFlags  flags,
-  XdpCursorMode       cursor_mode,
-  XdpPersistMode      persist_mode,
-  const gchar        *restore_token,
-  GCancellable       *cancellable,
-  GAsyncReadyCallback callback,
-  gpointer            data);
-typedef XdpSession *(*KasasaPortalCreateScreencastSessionFinishFunc) (
-  XdpPortal    *portal,
-  GAsyncResult *result,
-  GError      **error);
-typedef void (*KasasaPortalStartScreencastSessionFunc) (
-  XdpSession         *session,
-  XdpParent          *parent,
-  GCancellable       *cancellable,
-  GAsyncReadyCallback callback,
-  gpointer            data);
-typedef gboolean (*KasasaPortalStartScreencastSessionFinishFunc) (
-  XdpSession   *session,
-  GAsyncResult *result,
-  GError      **error);
-
-typedef struct
-{
-  KasasaPortalCreateScreencastSessionFunc create_session;
-  KasasaPortalCreateScreencastSessionFinishFunc create_session_finish;
-  KasasaPortalStartScreencastSessionFunc start_session;
-  KasasaPortalStartScreencastSessionFinishFunc start_session_finish;
-} KasasaScreencastPortalOps;
 
 typedef struct
 {
@@ -104,31 +54,30 @@ typedef struct
                                           GError     **error);
 } KasasaNativeCaptureOps;
 
+typedef struct
+{
+  gboolean (*available) (void);
+  void (*capture_async) (GCancellable        *cancellable,
+                         GAsyncReadyCallback  callback,
+                         gpointer             user_data);
+  gchar *(*capture_finish) (GAsyncResult *result,
+                            GError      **error);
+} KasasaRegionCaptureOps;
+
 KasasaContentContainer *kasasa_content_container_new (void);
 gboolean kasasa_content_container_append_screenshot (KasasaContentContainer *cc,
                                                      const gchar            *uri,
                                                      GError                **error);
-void kasasa_content_container_set_screenshot_portal_ops (
-  KasasaContentContainer          *cc,
-  const KasasaScreenshotPortalOps *ops);
-void kasasa_content_container_set_screencast_portal_ops (
-  KasasaContentContainer          *cc,
-  const KasasaScreencastPortalOps *ops,
-  guint                            create_timeout_ms);
 void kasasa_content_container_set_native_capture_ops (
   KasasaContentContainer        *cc,
   const KasasaNativeCaptureOps  *ops);
-gboolean kasasa_content_container_cancel_screencast_request (
-  KasasaContentContainer *cc);
-
+void kasasa_content_container_set_region_capture_ops (
+  KasasaContentContainer        *cc,
+  const KasasaRegionCaptureOps  *ops);
 void
 kasasa_content_container_carousel_set_interactive (KasasaContentContainer *cc,
                                                    gboolean                interactive);
 void kasasa_content_container_request_first_screenshot (KasasaContentContainer *cc);
-void kasasa_content_container_request_first_screencast (KasasaContentContainer *cc);
-void kasasa_content_container_request_screencast (KasasaContentContainer *cc);
-void kasasa_content_container_request_first_hyprland_screenshot (
-  KasasaContentContainer *cc);
 void kasasa_content_container_request_first_hyprland_screencast (
   KasasaContentContainer *cc);
 void kasasa_content_container_request_hyprland_screencast (

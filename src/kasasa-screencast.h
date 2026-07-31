@@ -22,7 +22,6 @@
 #pragma once
 
 #include <adwaita.h>
-#include <libportal/portal.h>
 
 #include "kasasa-content.h"
 
@@ -34,14 +33,6 @@ G_DECLARE_FINAL_TYPE (KasasaScreencast, kasasa_screencast, KASASA, SCREENCAST, A
 
 KasasaScreencast *kasasa_screencast_new (void);
 gboolean kasasa_screencast_is_active (KasasaScreencast *screencast);
-gboolean kasasa_screencast_show (KasasaScreencast *screencast,
-                                 XdpSession       *session,
-                                 gint              fd,
-                                 guint             node_id,
-                                 gint              expected_width,
-                                 gint              expected_height,
-                                 GError           **error);
-
 /* Hyprland-native live pin of a specific window (no Portal). */
 gboolean kasasa_screencast_show_hyprland (KasasaScreencast *screencast,
                                           guint32           window_handle,

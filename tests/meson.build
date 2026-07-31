@@ -2,8 +2,6 @@ glib_dep = dependency('glib-2.0')
 gio_dep = dependency('gio-2.0')
 gtk_dep = dependency('gtk4', version: '>= 4.14')
 adwaita_dep = dependency('libadwaita-1', version: '>= 1.7.4')
-portal_dep = dependency('libportal')
-portal_gtk_dep = dependency('libportal-gtk4')
 gstreamer_dep = dependency('gstreamer-1.0')
 gstreamer_app_dep = dependency('gstreamer-app-1.0')
 json_glib_dep = dependency('json-glib-1.0')
@@ -122,6 +120,24 @@ source_test = executable(
   dependencies: glib_dep,
 )
 
+region_capture_test = executable(
+  'test-region-capture',
+  [
+    'test-region-capture.c',
+    '../src/kasasa-region-capture.c',
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: gio_dep,
+)
+
+test(
+  'Region capture',
+  region_capture_test,
+  env: ['G_DEBUG=fatal-warnings'],
+  suite: 'unit',
+  timeout: 10,
+)
+
 test(
   'Source lifecycle',
   source_test,
@@ -167,7 +183,6 @@ gtk_screenshot_test = executable(
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
     '../src/kasasa-dmabuf-paintable.c',
-    '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-stream.c',
@@ -178,7 +193,6 @@ gtk_screenshot_test = executable(
   include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
-    portal_dep,
     gstreamer_dep,
     gstreamer_app_dep,
     json_glib_dep,
@@ -275,12 +289,12 @@ gtk_content_container_test = executable(
   [
     'test-gtk-content-container.c',
     '../src/kasasa-content-container.c',
+    '../src/kasasa-region-capture.c',
     '../src/kasasa-content.c',
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
     '../src/kasasa-dmabuf-paintable.c',
-    '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-window-picker.c',
@@ -293,8 +307,6 @@ gtk_content_container_test = executable(
   include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
-    portal_dep,
-    portal_gtk_dep,
     gstreamer_dep,
     gstreamer_app_dep,
     math_dep,
@@ -329,12 +341,12 @@ gtk_window_test = executable(
     '../src/kasasa-window.c',
     '../src/kasasa-preferences.c',
     '../src/kasasa-content-container.c',
+    '../src/kasasa-region-capture.c',
     '../src/kasasa-content.c',
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
     '../src/kasasa-dmabuf-paintable.c',
-    '../src/kasasa-screencast-pipeline.c',
     '../src/kasasa-source.c',
     '../src/kasasa-zoom.c',
     '../src/kasasa-window-query.c',
@@ -348,8 +360,6 @@ gtk_window_test = executable(
   include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
-    portal_dep,
-    portal_gtk_dep,
     gstreamer_dep,
     gstreamer_app_dep,
     math_dep,

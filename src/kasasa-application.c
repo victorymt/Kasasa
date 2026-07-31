@@ -637,7 +637,7 @@ kasasa_application_init (KasasaApplication *self)
   g_application_set_option_context_description (
     G_APPLICATION (self),
     _("Capture modes:\n"
-      "  kasasa                              Select a Hyprland window to capture\n"
+      "  kasasa                              Select a screen region to capture\n"
       "  kasasa --screencast                 Select a Hyprland window to preview live\n"
       "  kasasa --window=active              Capture the active Hyprland window\n"
       "  kasasa --screencast --monitor=active\n"

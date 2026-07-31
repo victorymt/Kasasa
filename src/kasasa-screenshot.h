@@ -31,10 +31,20 @@ G_BEGIN_DECLS
 
 G_DECLARE_FINAL_TYPE (KasasaScreenshot, kasasa_screenshot, KASASA, SCREENSHOT, AdwBin)
 
+typedef enum
+{
+  KASASA_SCREENSHOT_SOURCE_REGION,
+  KASASA_SCREENSHOT_SOURCE_WINDOW,
+} KasasaScreenshotSource;
+
 KasasaScreenshot *kasasa_screenshot_new (void);
 GFile *kasasa_screenshot_get_file (KasasaScreenshot *screenshot);
 gboolean kasasa_screenshot_load_screenshot (KasasaScreenshot *screenshot,
                                             const gchar      *uri,
                                             GError          **error);
+void kasasa_screenshot_set_source (KasasaScreenshot       *screenshot,
+                                   KasasaScreenshotSource  source);
+KasasaScreenshotSource kasasa_screenshot_get_source (
+  KasasaScreenshot *screenshot);
 
 G_END_DECLS

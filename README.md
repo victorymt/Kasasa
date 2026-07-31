@@ -12,12 +12,7 @@ Best used with:
 https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 
 > [!NOTE]
-> On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts.
-> 
-> There you can set a shortcut to call **`kasasa`**.
-
-> [!NOTE]
-> If using Hyprland, add the following rule:
+> Add the following Hyprland rule:
 > `windowrule = match:title Kasasa, no_blur on, border_size 0, no_shadow on, no_anim on`
 >
 > `no_anim on` is important for scroll-zoom: otherwise Hyprland smoothly
@@ -31,8 +26,9 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 > bind = SUPER SHIFT, Y, exec, kasasa --screencast
 > ```
 >
-> `kasasa` opens a Hyprland window picker for a screenshot.
-> `kasasa --screencast` (or `-c`) opens the same picker for a live preview. If
+> `kasasa` opens `slurp` for a region screenshot. Use **More actions → Window
+> screenshot** to capture a complete window. `kasasa --screencast` (or `-c`)
+> opens the Hyprland window picker for a live preview. If
 > Kasasa is already running, `--screencast` appends a new live preview to the
 > existing window.
 >
@@ -84,9 +80,8 @@ Start a live pin from the toolbar, or launch Kasasa with
 `kasasa --screencast` (`-c`). Kasasa lists capturable Hyprland windows itself
 and streams the selected window through the native toplevel-export protocol.
 
-On Hyprland, **More actions → Active monitor (Hyprland)** captures the active
-monitor through Wayland's native image-copy-capture protocol. Window and
-monitor capture do not use the desktop Portal.
+**More actions → Live active monitor** captures the active monitor through
+Wayland's native image-copy-capture protocol.
 
 - Live previews default to a 30 FPS limit. Choose any limit from 1 to 120 FPS
   under **Preferences → Screencast → Frame rate limit**; the new value applies
@@ -99,14 +94,14 @@ monitor capture do not use the desktop Portal.
   starting another one.
 
 > [!IMPORTANT]
-> Window selection and capture require Hyprland, `hyprctl`, and the Hyprland
-> toplevel-export Wayland protocol.
+> Kasasa requires Hyprland. Region capture also requires `slurp` and `grim`;
+> window capture uses the Hyprland toplevel-export Wayland protocol.
 
 ## Building
 
-Kasasa uses Meson. Install a C compiler, Meson, Ninja, and the development
-packages for GTK 4.14+, Libadwaita, libportal, GStreamer, JSON-GLib, and Wayland,
-plus `wayland-protocols` (including the staging image-copy-capture XML files),
+Kasasa uses Meson. Install a C compiler, Meson, Ninja, `slurp`, `grim`, and the
+development packages for GTK 4.14+, Libadwaita, GStreamer, JSON-GLib, Wayland,
+and `wayland-protocols` (including the staging image-copy-capture XML files),
 then run:
 
 ```sh
