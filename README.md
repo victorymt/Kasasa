@@ -93,6 +93,39 @@ Wayland's native image-copy-capture protocol.
 - Only one screencast can be active at a time. Finish the current stream before
   starting another one.
 
+### Preview lock
+
+Move the pointer over a pin and click the open-padlock button in the header to
+lock the preview. Locking keeps the pin at full opacity, prevents
+miniaturization, and stops pointer movement from revealing the header or
+bottom controls. This is useful for watching a live preview without controls
+covering part of the video.
+
+A small padlock remains in the top-left corner while the preview is locked.
+Click it to restore the full controls.
+
+### Crop a window preview
+
+Live **window** previews have a scissors button in the bottom-right controls.
+Click it to enter crop mode. The header is hidden while cropping so all four
+selection corners remain accessible, and the crop actions move to the bottom
+center.
+
+- Drag outside the current selection to draw a new crop rectangle.
+- Drag inside the selection to move it.
+- Drag any corner to resize it.
+- Use the refresh, close, and apply buttons to reset, cancel, or apply the
+  crop.
+
+The editor keeps the complete source visible while the selection is changing;
+the preview is cropped and resized only after **Apply crop** is clicked. You
+can enter crop mode again to revise an applied crop. Cropping affects only the
+Kasasa preview and does not alter the source window or Hyprland capture
+region.
+
+Crop mode is available for window previews only. Native monitor previews do
+not expose the crop button.
+
 > [!IMPORTANT]
 > Kasasa requires Hyprland. Region capture also requires `slurp` and `grim`;
 > window capture uses the Hyprland toplevel-export Wayland protocol.
