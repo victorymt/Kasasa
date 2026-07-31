@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kasasa\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-29 12:04+0800\n"
+"POT-Creation-Date: 2026-07-31 00:04+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,7 +20,7 @@ msgstr ""
 
 #: data/io.github.kelvinnovais.Kasasa.desktop.in:2
 #: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:5
-#: src/kasasa-application.c:517 src/kasasa-window.ui:16
+#: src/kasasa-application.c:513 src/kasasa-window.ui:20
 msgid "Kasasa"
 msgstr ""
 
@@ -138,31 +138,31 @@ msgstr ""
 msgid "Listing options cannot be combined with a capture target"
 msgstr ""
 
-#: src/kasasa-application.c:197
+#: src/kasasa-application.c:193
 msgid "Failed to resolve window"
 msgstr ""
 
-#: src/kasasa-application.c:208
+#: src/kasasa-application.c:204
 msgid "Targeted live screencast requires Hyprland Wayland"
 msgstr ""
 
-#: src/kasasa-application.c:217
+#: src/kasasa-application.c:213
 msgid "Invalid window address"
 msgstr ""
 
-#: src/kasasa-application.c:239
+#: src/kasasa-application.c:235
 msgid "Failed to capture window"
 msgstr ""
 
-#: src/kasasa-application.c:264
+#: src/kasasa-application.c:260
 msgid "Failed to resolve monitor"
 msgstr ""
 
-#: src/kasasa-application.c:271
+#: src/kasasa-application.c:267
 msgid "Targeted monitor screencast requires Hyprland Wayland"
 msgstr ""
 
-#: src/kasasa-application.c:521
+#: src/kasasa-application.c:517
 msgid ""
 "Snip and pin useful information\n"
 "\n"
@@ -170,47 +170,47 @@ msgid ""
 msgstr ""
 
 #. Translators: Replace "translator-credits" with your names, one name per line
-#: src/kasasa-application.c:529
+#: src/kasasa-application.c:525
 msgid "translator-credits"
 msgstr ""
 
-#: src/kasasa-application.c:589
+#: src/kasasa-application.c:585
 msgid "Start by pinning a screencast instead of a screenshot"
 msgstr ""
 
-#: src/kasasa-application.c:598
+#: src/kasasa-application.c:594
 msgid "List capturable windows (Hyprland) and exit"
 msgstr ""
 
-#: src/kasasa-application.c:607
+#: src/kasasa-application.c:603
 msgid "With a listing option, print JSON"
 msgstr ""
 
-#: src/kasasa-application.c:616
+#: src/kasasa-application.c:612
 msgid "Capture a window: class, title:…, address:…, or active"
 msgstr ""
 
-#: src/kasasa-application.c:617
+#: src/kasasa-application.c:613
 msgid "SPEC"
 msgstr ""
 
-#: src/kasasa-application.c:625
+#: src/kasasa-application.c:621
 msgid "List capturable monitors (Hyprland) and exit"
 msgstr ""
 
-#: src/kasasa-application.c:634
+#: src/kasasa-application.c:630
 msgid "Capture a monitor live: output name or active"
 msgstr ""
 
-#: src/kasasa-application.c:635
+#: src/kasasa-application.c:631
 msgid "NAME"
 msgstr ""
 
-#: src/kasasa-application.c:649
+#: src/kasasa-application.c:645
 msgid "Pin screenshots and screencasts above other windows"
 msgstr ""
 
-#: src/kasasa-application.c:652
+#: src/kasasa-application.c:648
 msgid ""
 "Capture modes:\n"
 "  kasasa                              Take a screenshot through the Portal\n"
@@ -224,31 +224,31 @@ msgid ""
 "Native monitor capture requires --monitor together with --screencast."
 msgstr ""
 
-#: src/kasasa-window.c:1661
+#: src/kasasa-window.c:1948
 msgid "Unblock miniaturization"
 msgstr ""
 
-#: src/kasasa-window.c:1667 src/kasasa-window.ui:83
+#: src/kasasa-window.c:1954 src/kasasa-window.ui:87
 msgid "Block miniaturization"
 msgstr ""
 
-#: src/kasasa-window.ui:66
+#: src/kasasa-window.ui:70
 msgid "Trigger auto discard timer"
 msgstr ""
 
-#: src/kasasa-window.ui:75
+#: src/kasasa-window.ui:79
 msgid "Auto delete image when closing window"
 msgstr ""
 
-#: src/kasasa-window.ui:94
+#: src/kasasa-window.ui:98
 msgid "Menu"
 msgstr ""
 
-#: src/kasasa-window.ui:176
+#: src/kasasa-window.ui:180
 msgid "_Preferences"
 msgstr ""
 
-#: src/kasasa-window.ui:180
+#: src/kasasa-window.ui:184
 msgid "_About Kasasa"
 msgstr ""
 
@@ -260,19 +260,19 @@ msgstr ""
 msgid "Couldn't find the active monitor"
 msgstr ""
 
-#: src/kasasa-content-container.c:168 src/kasasa-content-container.c:1704
+#: src/kasasa-content-container.c:168 src/kasasa-content-container.c:1715
 msgid "Couldn't display the monitor"
 msgstr ""
 
-#: src/kasasa-content-container.c:179 src/kasasa-content-container.c:583
-#: src/kasasa-content-container.c:613 src/kasasa-content-container.c:627
-#: src/kasasa-content-container.c:640 src/kasasa-content-container.c:2025
+#: src/kasasa-content-container.c:179 src/kasasa-content-container.c:594
+#: src/kasasa-content-container.c:624 src/kasasa-content-container.c:638
+#: src/kasasa-content-container.c:651 src/kasasa-content-container.c:2050
 #, c-format
 msgid "Error: %s"
 msgstr ""
 
-#: src/kasasa-content-container.c:181 src/kasasa-content-container.c:585
-#: src/kasasa-content-container.c:597 src/kasasa-content-container.c:2027
+#: src/kasasa-content-container.c:181 src/kasasa-content-container.c:596
+#: src/kasasa-content-container.c:608 src/kasasa-content-container.c:2052
 msgid "Copy"
 msgstr ""
 
@@ -280,86 +280,91 @@ msgstr ""
 msgid "GPU screencast unavailable. Switched to CPU."
 msgstr ""
 
-#: src/kasasa-content-container.c:217
+#: src/kasasa-content-container.c:204
+msgid ""
+"Hardware-accelerated preview unavailable. Switched to compatibility mode."
+msgstr ""
+
+#: src/kasasa-content-container.c:228
 msgid "Screenshot scheduled"
 msgstr ""
 
-#: src/kasasa-content-container.c:218
+#: src/kasasa-content-container.c:229
 #, c-format
 msgid "Screenshot in %u second"
 msgid_plural "Screenshot in %u seconds"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/kasasa-content-container.c:224 src/kasasa-content-container.c:1508
+#: src/kasasa-content-container.c:235 src/kasasa-content-container.c:1519
 msgid "Cancel"
 msgstr ""
 
-#: src/kasasa-content-container.c:594 src/kasasa-content-container.c:626
-#: src/kasasa-content-container.c:831 src/kasasa-content-container.c:1587
+#: src/kasasa-content-container.c:605 src/kasasa-content-container.c:637
+#: src/kasasa-content-container.c:842 src/kasasa-content-container.c:1598
 msgid "Couldn't load the screenshot"
 msgstr ""
 
-#: src/kasasa-content-container.c:612
+#: src/kasasa-content-container.c:623
 msgid "Current content is not a screenshot"
 msgstr ""
 
 #. translators: reason which the screenshot failed
 #. translators: reason which the screencast failed
-#: src/kasasa-content-container.c:824 src/kasasa-content-container.c:831
-#: src/kasasa-content-container.c:842 src/kasasa-content-container.c:1087
-#: src/kasasa-content-container.c:1586 src/kasasa-content-container.c:1597
-#: src/kasasa-content-container.c:1760
+#: src/kasasa-content-container.c:835 src/kasasa-content-container.c:842
+#: src/kasasa-content-container.c:853 src/kasasa-content-container.c:1098
+#: src/kasasa-content-container.c:1597 src/kasasa-content-container.c:1608
+#: src/kasasa-content-container.c:1773
 msgid "Reason: "
 msgstr ""
 
-#: src/kasasa-content-container.c:861 src/kasasa-content-container.c:1613
+#: src/kasasa-content-container.c:872 src/kasasa-content-container.c:1624
 msgid "Screenshot failed"
 msgstr ""
 
-#: src/kasasa-content-container.c:1092 src/kasasa-content-container.c:1699
-#: src/kasasa-content-container.c:1786
+#: src/kasasa-content-container.c:1103 src/kasasa-content-container.c:1710
+#: src/kasasa-content-container.c:1799
 msgid "Screencast failed"
 msgstr ""
 
-#: src/kasasa-content-container.c:1175
+#: src/kasasa-content-container.c:1186
 msgid "The screencast service did not respond"
 msgstr ""
 
-#: src/kasasa-content-container.c:1258 src/kasasa-content-container.c:1264
+#: src/kasasa-content-container.c:1269 src/kasasa-content-container.c:1275
 msgid "Couldn't start the screencast"
 msgstr ""
 
-#: src/kasasa-content-container.c:1280 src/kasasa-content-container.c:1286
+#: src/kasasa-content-container.c:1291 src/kasasa-content-container.c:1297
 msgid "The screencast did not provide a video stream"
 msgstr ""
 
-#: src/kasasa-content-container.c:1302 src/kasasa-content-container.c:1308
+#: src/kasasa-content-container.c:1313 src/kasasa-content-container.c:1319
 msgid "The screencast provided invalid stream information"
 msgstr ""
 
-#: src/kasasa-content-container.c:1332 src/kasasa-content-container.c:1338
+#: src/kasasa-content-container.c:1343 src/kasasa-content-container.c:1349
 msgid "Couldn't connect to the screencast service"
 msgstr ""
 
-#: src/kasasa-content-container.c:1374 src/kasasa-content-container.c:1380
-#: src/kasasa-content-container.c:1763
+#: src/kasasa-content-container.c:1385 src/kasasa-content-container.c:1391
+#: src/kasasa-content-container.c:1776
 msgid "Couldn't display the screencast"
 msgstr ""
 
-#: src/kasasa-content-container.c:1450 src/kasasa-content-container.c:1456
+#: src/kasasa-content-container.c:1461 src/kasasa-content-container.c:1467
 msgid "Couldn't create the screencast"
 msgstr ""
 
-#: src/kasasa-content-container.c:1504
+#: src/kasasa-content-container.c:1515
 msgid "Waiting for screen selection…"
 msgstr ""
 
-#: src/kasasa-content-container.c:1544
+#: src/kasasa-content-container.c:1555
 msgid "Finish the current screencast before starting another one."
 msgstr ""
 
-#: src/kasasa-content-container.c:2039
+#: src/kasasa-content-container.c:2064
 msgid "Copied to the clipboard"
 msgstr ""
 
@@ -399,206 +404,222 @@ msgstr ""
 msgid "Copy screenshot"
 msgstr ""
 
-#: src/kasasa-hyprland-capture.c:62
-msgid "Hyprland capture requires hyprctl and grim"
+#: src/kasasa-hyprland-capture.c:81 src/kasasa-hyprland-capture.c:90
+msgid "The compositor provided an invalid window frame"
 msgstr ""
 
-#: src/kasasa-hyprland-capture.c:71
-msgid "Window has an invalid size"
+#: src/kasasa-hyprland-capture.c:113
+msgid "The window frame is too large"
 msgstr ""
 
-#: src/kasasa-hyprland-capture.c:114
-msgid "grim did not produce a screenshot file"
+#: src/kasasa-hyprland-capture.c:121
+msgid "Couldn't allocate a window screenshot"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:176
+#: src/kasasa-hyprland-capture.c:206
+msgid "The compositor provided an unsupported window frame format"
+msgstr ""
+
+#: src/kasasa-hyprland-capture.c:287
+msgid "Couldn't capture the window"
+msgstr ""
+
+#: src/kasasa-hyprland-capture.c:320
+msgid "Hyprland window capture requires Wayland and hyprctl"
+msgstr ""
+
+#: src/kasasa-hyprland-capture.c:371
+msgid "Couldn't save the window screenshot"
+msgstr ""
+
+#: src/kasasa-hyprland-stream.c:250
 msgid "Window address is empty"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:187
+#: src/kasasa-hyprland-stream.c:261
 #, c-format
 msgid "Invalid window address “%s”"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:840 src/kasasa-hyprland-stream.c:864
-#: src/kasasa-hyprland-stream.c:914
+#: src/kasasa-hyprland-stream.c:1448 src/kasasa-hyprland-stream.c:1472
+#: src/kasasa-hyprland-stream.c:1522
 msgid "Wayland event dispatch failed"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:842 src/kasasa-hyprland-stream.c:871
+#: src/kasasa-hyprland-stream.c:1450 src/kasasa-hyprland-stream.c:1479
 msgid "Wayland request flush failed"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:893
+#: src/kasasa-hyprland-stream.c:1501
 msgid "Waiting for Wayland events failed"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:906
+#: src/kasasa-hyprland-stream.c:1514
 msgid "The Wayland connection was closed"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:911
+#: src/kasasa-hyprland-stream.c:1519
 msgid "Reading Wayland events failed"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:953
+#: src/kasasa-hyprland-stream.c:1561
 msgid "Couldn't synchronize with Wayland"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:962
+#: src/kasasa-hyprland-stream.c:1570
 msgid "Timed out waiting for the Wayland compositor"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1032
+#: src/kasasa-hyprland-stream.c:1693
 msgid "Couldn't request a window frame"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1049 src/kasasa-hyprland-stream.c:1085
+#: src/kasasa-hyprland-stream.c:1710 src/kasasa-hyprland-stream.c:1764
 msgid "Timed out waiting for a window frame"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1061 src/kasasa-hyprland-stream.c:1097
+#: src/kasasa-hyprland-stream.c:1722 src/kasasa-hyprland-stream.c:1782
 msgid "The selected window is no longer available"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1065
+#: src/kasasa-hyprland-stream.c:1726
 msgid "The compositor provided no supported frame format"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1069
+#: src/kasasa-hyprland-stream.c:1748
 msgid "Couldn't allocate a window frame buffer"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1101
+#: src/kasasa-hyprland-stream.c:1786
 msgid "The compositor did not complete the window frame"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1135
+#: src/kasasa-hyprland-stream.c:1820
 #, c-format
 msgid "Wayland output “%s” is unavailable"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1146
+#: src/kasasa-hyprland-stream.c:1831
 msgid "Couldn't create an output capture source"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1154
+#: src/kasasa-hyprland-stream.c:1839
 msgid "Couldn't create an output capture session"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1164 src/kasasa-hyprland-stream.c:1197
-#: src/kasasa-hyprland-stream.c:1218 src/kasasa-hyprland-stream.c:1275
+#: src/kasasa-hyprland-stream.c:1849 src/kasasa-hyprland-stream.c:1882
+#: src/kasasa-hyprland-stream.c:1903 src/kasasa-hyprland-stream.c:1960
 msgid "The selected monitor is no longer available"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1167
+#: src/kasasa-hyprland-stream.c:1852
 msgid "The compositor provided no supported monitor frame format"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1188
+#: src/kasasa-hyprland-stream.c:1873
 msgid "Timed out waiting for monitor capture constraints"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1200 src/kasasa-hyprland-stream.c:1224
+#: src/kasasa-hyprland-stream.c:1885 src/kasasa-hyprland-stream.c:1909
 msgid "Monitor capture buffer constraints are unavailable"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1227
+#: src/kasasa-hyprland-stream.c:1912
 msgid "Couldn't allocate a monitor frame buffer"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1233
+#: src/kasasa-hyprland-stream.c:1918
 msgid "Couldn't request a monitor frame"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1264
+#: src/kasasa-hyprland-stream.c:1949
 msgid "Timed out waiting for a monitor frame"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1283
+#: src/kasasa-hyprland-stream.c:1968
 msgid "Monitor capture constraints changed"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1285
+#: src/kasasa-hyprland-stream.c:1970
 msgid "The compositor failed to capture the monitor"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1289
+#: src/kasasa-hyprland-stream.c:1974
 msgid "The compositor did not complete the monitor frame"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1339
+#: src/kasasa-hyprland-stream.c:2024
 msgid "Failed to connect to the Wayland display"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1347
+#: src/kasasa-hyprland-stream.c:2032
 msgid "Couldn't access the Wayland registry"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1359
+#: src/kasasa-hyprland-stream.c:2069
 msgid "Hyprland's window capture protocol is unavailable"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1369
+#: src/kasasa-hyprland-stream.c:2079
 msgid "Hyprland's monitor capture protocol is unavailable"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1465 src/kasasa-screencast.c:1079
+#: src/kasasa-hyprland-stream.c:2197 src/kasasa-screencast.c:1490
 msgid "Couldn't start Hyprland monitor capture"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1466 src/kasasa-screencast.c:1080
+#: src/kasasa-hyprland-stream.c:2198 src/kasasa-screencast.c:1379
 msgid "Couldn't start Hyprland window capture"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1496
+#: src/kasasa-hyprland-stream.c:2229
 msgid "Hyprland live capture requires Wayland and hyprctl"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1522
+#: src/kasasa-hyprland-stream.c:2267
 #, c-format
 msgid "Failed to start Hyprland capture thread: %s"
 msgstr ""
 
-#: src/kasasa-hyprland-stream.c:1523
+#: src/kasasa-hyprland-stream.c:2268
 msgid "unknown error"
 msgstr ""
 
-#: src/kasasa-screencast.c:319 src/kasasa-screencast.c:447
-#: src/kasasa-screencast.c:615
+#: src/kasasa-screencast.c:354 src/kasasa-screencast.c:659
+#: src/kasasa-screencast.c:828
 msgid "Screencast ended with error"
 msgstr ""
 
-#: src/kasasa-screencast.c:479
+#: src/kasasa-screencast.c:691
 msgid "The window capture stopped unexpectedly"
 msgstr ""
 
-#: src/kasasa-screencast.c:565 src/kasasa-screencast.c:1039
+#: src/kasasa-screencast.c:777 src/kasasa-screencast.c:1460
 msgid "The screencast pipeline has no message bus"
 msgstr ""
 
-#: src/kasasa-screencast.c:595 src/kasasa-screencast.c:722
-#: src/kasasa-screencast.c:1050
+#: src/kasasa-screencast.c:807 src/kasasa-screencast.c:935
+#: src/kasasa-screencast.c:1471
 msgid "The screencast pipeline could not be started"
 msgstr ""
 
-#: src/kasasa-screencast.c:683
+#: src/kasasa-screencast.c:896
 msgid "Invalid screencast connection"
 msgstr ""
 
-#: src/kasasa-screencast.c:961
+#: src/kasasa-screencast.c:1345
 msgid "Screencast is already active"
 msgstr ""
 
-#: src/kasasa-screencast.c:1030
+#: src/kasasa-screencast.c:1451
 msgid "The screencast pipeline could not be linked"
 msgstr ""
 
-#: src/kasasa-screencast.c:1095
+#: src/kasasa-screencast.c:1505
 msgid "Required GStreamer plugins are unavailable"
 msgstr ""
 
-#: src/kasasa-screencast.c:1252
+#: src/kasasa-screencast.c:1686
 msgid "No screencast"
 msgstr ""
 

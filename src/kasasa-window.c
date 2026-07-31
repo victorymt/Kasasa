@@ -271,6 +271,7 @@ scaling (GtkWidget *widget,
   GdkDisplay *display = NULL;
   GtkNative *native = NULL;
   GdkSurface *surface = NULL;
+  GdkMonitor *monitor = NULL;
 
   g_return_val_if_fail (GTK_IS_WIDGET (widget), TRUE);
 
@@ -295,7 +296,17 @@ scaling (GtkWidget *widget,
       return TRUE;
     }
 
-  *scale = gdk_surface_get_scale (surface);
+  monitor = gdk_display_get_monitor_at_surface (display, surface);
+  if (monitor == NULL)
+    {
+      g_warning ("Couldn't get GdkMonitor");
+      return TRUE;
+    }
+
+  /* Before wl_surface.enter, GdkSurface exposes the compositor's integer
+   * fallback scale. The monitor already knows its fractional scale, so use it
+   * as the stable content-size basis for both first reveal and later zoom. */
+  *scale = gdk_monitor_get_scale (monitor);
 
   return FALSE;
 }

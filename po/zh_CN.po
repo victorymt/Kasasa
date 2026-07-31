@@ -297,6 +297,11 @@ msgstr "复制"
 msgid "GPU screencast unavailable. Switched to CPU."
 msgstr "GPU 录屏不可用，已切换到 CPU。"
 
+#: src/kasasa-content-container.c:204
+msgid ""
+"Hardware-accelerated preview unavailable. Switched to compatibility mode."
+msgstr "硬件加速预览不可用，已切换到兼容模式。"
+
 #: src/kasasa-content-container.c:217
 msgid "Screenshot scheduled"
 msgstr "已安排截图"

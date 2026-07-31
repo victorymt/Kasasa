@@ -56,4 +56,9 @@ gboolean kasasa_screencast_show_hyprland_output (KasasaScreencast *screencast,
                                                  gint              expected_height,
                                                  GError          **error);
 
+#ifdef KASASA_ENABLE_TESTS
+void kasasa_screencast_test_push_shm_fallback_frame (
+  KasasaScreencast *screencast);
+#endif
+
 G_END_DECLS

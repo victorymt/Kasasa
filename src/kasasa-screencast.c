@@ -50,6 +50,7 @@ enum
   SIGNAL_NEW_DIMENSION,
   SIGNAL_EOS,
   SIGNAL_CPU_FALLBACK,
+  SIGNAL_DMABUF_FALLBACK,
 
   N_SIGNALS
 };
@@ -92,6 +93,7 @@ struct _KasasaScreencast
   gboolean                 using_gpu_pipeline;
   gboolean                 gpu_fallback_attempted;
   gboolean                 cpu_fallback_notified;
+  gboolean                 dmabuf_fallback_notified;
   guint                    portal_node_id;
   guint                    fallback_source;
   gint                     dimension[DIMENSION_N_ELEMENTS];
@@ -178,6 +180,16 @@ emit_cpu_fallback (KasasaScreencast *self)
 
   self->cpu_fallback_notified = TRUE;
   g_signal_emit (self, obj_signals[SIGNAL_CPU_FALLBACK], 0);
+}
+
+static void
+emit_dmabuf_fallback (KasasaScreencast *self)
+{
+  if (self->dmabuf_fallback_notified)
+    return;
+
+  self->dmabuf_fallback_notified = TRUE;
+  g_signal_emit (self, obj_signals[SIGNAL_DMABUF_FALLBACK], 0);
 }
 
 static void
@@ -445,6 +457,7 @@ apply_pending_preview_update (gpointer user_data)
                                            texture,
                                            update->transform,
                                            update->y_invert);
+      emit_dmabuf_fallback (self);
       if (self->direct_dmabuf_active)
         {
           g_info ("Hyprland window preview switched to wl_shm/GTK memory textures");
@@ -1104,6 +1117,28 @@ on_hypr_stream_direct_shm_frame (gpointer                     user_data,
   queue_preview_frame_update (self, update);
 }
 
+#ifdef KASASA_ENABLE_TESTS
+void
+kasasa_screencast_test_push_shm_fallback_frame (
+  KasasaScreencast *self)
+{
+  static const guint8 pixels[4] = { 0, 0, 0, 0xff };
+
+  g_return_if_fail (KASASA_IS_SCREENCAST (self));
+
+  self->finished = FALSE;
+  on_hypr_stream_direct_shm_frame (
+    self,
+    pixels,
+    1,
+    1,
+    4,
+    KASASA_HYPRLAND_STREAM_FORMAT_RGBA,
+    FALSE,
+    WL_OUTPUT_TRANSFORM_NORMAL);
+}
+#endif
+
 static void
 on_hypr_stream_frame (gpointer                     user_data,
                       const guint8                *data,
@@ -1301,6 +1336,7 @@ show_hyprland_source (KasasaScreencast *self,
   self->stream_height = 0;
   self->stream_format = KASASA_HYPRLAND_STREAM_FORMAT_BGRX;
   self->direct_dmabuf_failed = FALSE;
+  self->dmabuf_fallback_notified = FALSE;
 
   if (self->pipeline != NULL || self->hypr_stream != NULL)
     {
@@ -1600,6 +1636,16 @@ kasasa_screencast_class_init (KasasaScreencastClass *klass)
 
   obj_signals[SIGNAL_CPU_FALLBACK] =
     g_signal_new ("cpu-fallback",
+                  KASASA_TYPE_SCREENCAST,
+                  G_SIGNAL_RUN_LAST,
+                  0,
+                  NULL, NULL,
+                  NULL,
+                  G_TYPE_NONE,
+                  0);
+
+  obj_signals[SIGNAL_DMABUF_FALLBACK] =
+    g_signal_new ("dmabuf-fallback",
                   KASASA_TYPE_SCREENCAST,
                   G_SIGNAL_RUN_LAST,
                   0,

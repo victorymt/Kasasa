@@ -827,6 +827,9 @@ test_continuous_zoom_shrink (void)
                                &initial_height);
   g_assert_cmpint (initial_width, >, WINDOW_MIN_WIDTH);
   g_assert_cmpint (initial_height, >, WINDOW_MIN_HEIGHT);
+  g_assert_true (wait_for_window_allocation (GTK_WINDOW (window),
+                                             initial_width,
+                                             initial_height));
 
   g_signal_connect (window,
                     "notify::default-width",
@@ -853,10 +856,10 @@ test_continuous_zoom_shrink (void)
    * snapping the toplevel to a new size in the scroll callback. */
   g_assert_cmpint (immediate_width, ==, initial_width);
   g_assert_cmpint (immediate_height, ==, initial_height);
-  /* The compositor may report a different output scale after the first map,
-   * so assert an eventual animated change rather than a fixed direction. */
-  g_assert_cmpint (settled_width, !=, immediate_width);
-  g_assert_cmpint (settled_height, !=, immediate_height);
+  /* Initial sizing and zoom must share the monitor's fractional-scale basis;
+   * the first shrink must never grow while the surface scale settles. */
+  g_assert_cmpint (settled_width, <, immediate_width);
+  g_assert_cmpint (settled_height, <, immediate_height);
   g_assert_cmpuint (wheel_width_updates, >, 1);
   g_assert_cmpuint (wheel_height_updates, >, 1);
 

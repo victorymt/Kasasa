@@ -174,6 +174,7 @@ gtk_screenshot_test = executable(
     '../src/kasasa-wayland-stubs.c',
     hyprland_protocol_gen,
   ],
+  c_args: ['-DKASASA_ENABLE_TESTS'],
   include_directories: include_directories('../src', '.'),
   dependencies: [
     adwaita_dep,
