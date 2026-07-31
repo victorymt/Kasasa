@@ -439,6 +439,99 @@ test_internal_motion_keeps_controls_visible (void)
   dispatch_pending_sources ();
 }
 
+static void
+test_preview_lock_keeps_controls_hidden (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autoptr (GSettings) settings = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  g_autoptr (GtkEventController) content_motion = NULL;
+  GtkRevealer *header_bar_revealer;
+  GtkRevealer *toolbar_revealer;
+  GtkToggleButton *lock_button;
+  GtkWidget *content_container;
+  GtkWidget *locked_mode_button;
+  KasasaWindow *window;
+
+  settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
+  g_assert_true (g_settings_set_boolean (settings, "auto-hide-menu", TRUE));
+  g_assert_true (g_settings_set_boolean (settings,
+                                         "miniaturize-window",
+                                         FALSE));
+  g_assert_true (g_settings_set_boolean (settings, "change-opacity", FALSE));
+
+  application_id = g_strdup_printf ("io.github.kelvinnovais.Kasasa.Lock%u",
+                                    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  g_assert_true (g_application_register (G_APPLICATION (application),
+                                         NULL,
+                                         &error));
+  g_assert_no_error (error);
+
+  window = g_object_new (KASASA_TYPE_WINDOW,
+                         "application", application,
+                         NULL);
+  content_container = find_widget_by_id (GTK_WIDGET (window),
+                                         "content_container");
+  header_bar_revealer = GTK_REVEALER (
+    find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+  toolbar_revealer = GTK_REVEALER (
+    find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
+  lock_button = GTK_TOGGLE_BUTTON (
+    find_widget_by_id (GTK_WIDGET (window), "lock_button"));
+  locked_mode_button = find_widget_by_id (GTK_WIDGET (window),
+                                          "locked_mode_button");
+  g_assert_nonnull (content_container);
+  g_assert_nonnull (header_bar_revealer);
+  g_assert_nonnull (toolbar_revealer);
+  g_assert_nonnull (lock_button);
+  g_assert_nonnull (locked_mode_button);
+  g_assert_true (gtk_widget_get_visible (GTK_WIDGET (lock_button)));
+  g_assert_false (gtk_widget_get_visible (locked_mode_button));
+
+  content_motion = find_motion_controller (content_container);
+  g_assert_nonnull (content_motion);
+
+  gtk_window_present (GTK_WINDOW (window));
+  dispatch_pending_sources ();
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  gtk_toggle_button_set_active (lock_button, TRUE);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_false (gtk_revealer_get_reveal_child (toolbar_revealer));
+  g_assert_true (gtk_widget_get_visible (locked_mode_button));
+
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_false (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  g_signal_emit_by_name (locked_mode_button, "clicked");
+  g_assert_false (gtk_toggle_button_get_active (lock_button));
+  g_assert_false (gtk_widget_get_visible (locked_mode_button));
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  kasasa_window_set_crop_mode (window, TRUE);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+  g_assert_false (gtk_widget_get_sensitive (GTK_WIDGET (lock_button)));
+
+  g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
+  g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+
+  kasasa_window_set_crop_mode (window, FALSE);
+  g_assert_true (gtk_revealer_get_reveal_child (header_bar_revealer));
+  g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
+  g_assert_true (gtk_widget_get_sensitive (GTK_WIDGET (lock_button)));
+
+  gtk_window_destroy (GTK_WINDOW (window));
+  dispatch_pending_sources ();
+}
+
 static gboolean
 wait_for_window_shrink (GtkWindow *window,
                         gint       initial_width,
@@ -955,6 +1048,8 @@ main (int argc, char **argv)
                    test_quit_wipes_real_window_content);
   g_test_add_func ("/gtk/window/internal-motion-keeps-controls-visible",
                    test_internal_motion_keeps_controls_visible);
+  g_test_add_func ("/gtk/window/preview-lock-keeps-controls-hidden",
+                   test_preview_lock_keeps_controls_hidden);
   g_test_add_func ("/gtk/window/continuous-zoom-shrink",
                    test_continuous_zoom_shrink);
   g_test_add_func ("/gtk/window/switch-resize-modes",

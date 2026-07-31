@@ -84,7 +84,7 @@
                                           <object class="GtkToggleButton" id="lock_button">
                                             <property name="margin-start">6</property>
                                             <property name="icon-name">padlock2-open-symbolic</property>
-                                            <property name="tooltip-text" translatable="yes">Block miniaturization</property>
+                                            <property name="tooltip-text" translatable="yes">Lock preview</property>
                                           </object>
                                         </child>
                                       </object>
@@ -122,6 +122,26 @@
                         <property name="vexpand">true</property>
                         <property name="halign">fill</property>
                         <property name="valign">fill</property>
+                      </object>
+                    </child>
+
+                    <!-- Keep one compact escape hatch available while the
+                         full preview controls are locked and hidden. -->
+                    <child type="overlay">
+                      <object class="GtkButton" id="locked_mode_button">
+                        <property name="visible">false</property>
+                        <property name="can-focus">false</property>
+                        <property name="halign">start</property>
+                        <property name="valign">start</property>
+                        <property name="margin-start">6</property>
+                        <property name="margin-top">6</property>
+                        <property name="icon-name">padlock2-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Unlock preview</property>
+                        <style>
+                          <class name="osd"/>
+                          <class name="circular"/>
+                          <class name="preview-lock-button"/>
+                        </style>
                       </object>
                     </child>
                   </object>

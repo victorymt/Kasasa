@@ -50,6 +50,7 @@ struct _KasasaWindow
   GtkToggleButton *auto_discard_button;
   GtkToggleButton *auto_trash_button;
   GtkToggleButton *lock_button;
+  GtkButton *locked_mode_button;
   GtkProgressBar *progress_bar;
   GtkStack *stack;
 
@@ -65,6 +66,7 @@ struct _KasasaWindow
   gboolean initial_reveal_pending;
   gboolean initial_content_ready;
   gboolean carousel_locked_for_resize;
+  gboolean crop_mode_active;
   gboolean zoom_scheduled; /* coalesce wheel events to one apply per frame */
   KasasaScrollAxis scroll_axis;
   gdouble  zoom_factor;
@@ -1379,6 +1381,12 @@ window_miniaturization_cb (gpointer user_data)
   kasasa_window_resize_window (self, 75, 75);
 }
 
+static gboolean
+preview_is_locked (KasasaWindow *self)
+{
+  return gtk_toggle_button_get_active (self->lock_button);
+}
+
 /*
  * If miniaturize == TRUE, this function will miniaturize the window after some time
  *
@@ -1440,8 +1448,11 @@ kasasa_window_block_miniaturization (KasasaWindow *self,
 static gboolean
 controls_should_remain_visible (KasasaWindow *self)
 {
-  return self->mouse_over_window
-         || kasasa_content_container_controls_active (self->content_container);
+  return self->crop_mode_active
+         || (!preview_is_locked (self)
+             && (self->mouse_over_window
+                 || kasasa_content_container_controls_active (
+                   self->content_container)));
 }
 
 static void
@@ -1479,6 +1490,10 @@ static void
 reveal_header_bar_cb (gpointer user_data)
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  if (preview_is_locked (self) || self->crop_mode_active)
+    return;
+
   gtk_revealer_set_reveal_child (GTK_REVEALER (self->header_bar_revealer), TRUE);
 }
 
@@ -1518,6 +1533,45 @@ schedule_toolbar_hide (KasasaWindow *self)
                                   self);
 }
 
+static void
+apply_preview_lock (KasasaWindow *self,
+                    gboolean      locked)
+{
+  gtk_button_set_icon_name (GTK_BUTTON (self->lock_button),
+                            locked ? "padlock2-symbolic"
+                                   : "padlock2-open-symbolic");
+  gtk_widget_set_tooltip_text (GTK_WIDGET (self->lock_button),
+                               locked ? _("Unlock preview")
+                                      : _("Lock preview"));
+  gtk_widget_set_visible (GTK_WIDGET (self->locked_mode_button), locked);
+
+  kasasa_source_clear (&self->hide_toolbar_source);
+  kasasa_source_clear (&self->hide_header_bar_source);
+  self->hide_menu_requested = FALSE;
+
+  if (locked)
+    {
+      kasasa_window_miniaturize_window (self, FALSE);
+      kasasa_window_change_opacity (self, OPACITY_INCREASE);
+      gtk_revealer_set_reveal_child (
+        GTK_REVEALER (self->header_bar_revealer), FALSE);
+      kasasa_content_container_reveal_controls (self->content_container, FALSE);
+      return;
+    }
+
+  /* The compact button is inside the preview, so unlocking should provide
+   * immediate visual feedback even before the next motion event arrives. */
+  gtk_revealer_set_reveal_child (
+    GTK_REVEALER (self->header_bar_revealer), TRUE);
+  kasasa_content_container_reveal_controls (self->content_container, TRUE);
+
+  if (!self->mouse_over_window)
+    {
+      schedule_toolbar_hide (self);
+      hide_header_bar (self);
+    }
+}
+
 void
 kasasa_window_set_controls_popup_active (KasasaWindow *self,
                                          gboolean      active)
@@ -1532,6 +1586,45 @@ kasasa_window_set_controls_popup_active (KasasaWindow *self,
       kasasa_source_clear (&self->hide_header_bar_source);
       self->hide_menu_requested = FALSE;
       return;
+    }
+
+  if (!self->mouse_over_window)
+    {
+      schedule_toolbar_hide (self);
+      hide_header_bar (self);
+    }
+}
+
+void
+kasasa_window_set_crop_mode (KasasaWindow *self,
+                             gboolean      active)
+{
+  g_return_if_fail (KASASA_IS_WINDOW (self));
+
+  if (self->crop_mode_active == active)
+    return;
+
+  self->crop_mode_active = active;
+  kasasa_source_clear (&self->hide_toolbar_source);
+  kasasa_source_clear (&self->hide_header_bar_source);
+  self->hide_menu_requested = FALSE;
+  gtk_widget_set_sensitive (GTK_WIDGET (self->lock_button), !active);
+  kasasa_window_block_miniaturization (self, active);
+  if (!active && self->mouse_over_window)
+    kasasa_window_miniaturize_window (self, FALSE);
+
+  if (active)
+    {
+      kasasa_window_change_opacity (self, OPACITY_INCREASE);
+      gtk_revealer_set_reveal_child (self->header_bar_revealer, FALSE);
+      kasasa_content_container_reveal_controls (self->content_container, TRUE);
+      return;
+    }
+
+  if (!preview_is_locked (self))
+    {
+      gtk_revealer_set_reveal_child (self->header_bar_revealer, TRUE);
+      kasasa_content_container_reveal_controls (self->content_container, TRUE);
     }
 
   if (!self->mouse_over_window)
@@ -1556,6 +1649,16 @@ on_mouse_enter_content_container (GtkEventControllerMotion *event_controller_mot
   if (gtk_menu_button_get_active (self->menu_button))
     return;
 
+  if (preview_is_locked (self))
+    return;
+
+  if (self->crop_mode_active)
+    {
+      kasasa_window_change_opacity (self, OPACITY_INCREASE);
+      kasasa_content_container_reveal_controls (self->content_container, TRUE);
+      return;
+    }
+
   kasasa_window_change_opacity (self, OPACITY_DECREASE);
 
   // Do not reveal HeaderBar/Toolbar if miniaturization is active; this will done
@@ -1578,8 +1681,13 @@ on_mouse_leave_content_container (GtkEventControllerMotion *event_controller_mot
   if (self->awaiting_initial_pointer_motion)
     return;
 
+  if (self->crop_mode_active)
+    return;
+
   // See Note [1]
   if (gtk_menu_button_get_active (self->menu_button))
+    return;
+  if (preview_is_locked (self))
     return;
   if (kasasa_content_container_controls_active (self->content_container))
     return;
@@ -1647,6 +1755,9 @@ on_mouse_leave_window (GtkEventControllerMotion *event_controller_motion,
 
   self->mouse_over_window = FALSE;
 
+  if (self->crop_mode_active)
+    return;
+
   schedule_toolbar_hide (self);
 
   if (gtk_toggle_button_get_active (self->lock_button))
@@ -1678,6 +1789,12 @@ on_mouse_motion_window (GtkEventControllerMotion *event_controller_motion,
   if (gtk_menu_button_get_active (self->menu_button))
     return;
 
+  if (preview_is_locked (self))
+    return;
+
+  if (self->crop_mode_active)
+    return;
+
   kasasa_window_change_opacity (self, OPACITY_DECREASE);
 
   if (g_settings_get_boolean (self->settings, "miniaturize-window"))
@@ -1697,6 +1814,12 @@ on_window_click_released (GtkGestureClick *gesture_click,
                           gpointer user_data)
 {
   KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  if (preview_is_locked (self))
+    return;
+
+  if (self->crop_mode_active)
+    return;
 
   if (!g_settings_get_boolean (self->settings, "miniaturize-window"))
     return;
@@ -1943,18 +2066,18 @@ static void
 on_lock_button_toggled (GtkToggleButton *button,
                         gpointer user_data)
 {
-  if (gtk_toggle_button_get_active (button))
-    {
-      gtk_button_set_icon_name (GTK_BUTTON (button), "padlock2-symbolic");
-      gtk_widget_set_tooltip_text (GTK_WIDGET (button),
-                                   _ ("Unblock miniaturization"));
-    }
-  else
-    {
-      gtk_button_set_icon_name (GTK_BUTTON (button), "padlock2-open-symbolic");
-      gtk_widget_set_tooltip_text (GTK_WIDGET (button),
-                                   _ ("Block miniaturization"));
-    }
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  apply_preview_lock (self, gtk_toggle_button_get_active (button));
+}
+
+static void
+on_locked_mode_button_clicked (GtkButton *button,
+                               gpointer   user_data)
+{
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  gtk_toggle_button_set_active (self->lock_button, FALSE);
 }
 
 static void
@@ -2091,6 +2214,7 @@ kasasa_window_class_init (KasasaWindowClass *klass)
   gtk_widget_class_bind_template_child (widget_class, KasasaWindow, auto_discard_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaWindow, auto_trash_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaWindow, lock_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaWindow, locked_mode_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaWindow, progress_bar);
   gtk_widget_class_bind_template_child (widget_class, KasasaWindow, stack);
 }
@@ -2119,6 +2243,7 @@ kasasa_window_init (KasasaWindow *self)
   self->initial_reveal_pending = FALSE;
   self->initial_content_ready = FALSE;
   self->carousel_locked_for_resize = FALSE;
+  self->crop_mode_active = FALSE;
   self->zoom_scheduled = FALSE;
   self->scroll_axis = KASASA_SCROLL_AXIS_UNDECIDED;
   self->zoom_factor = 1.0;
@@ -2174,13 +2299,6 @@ kasasa_window_init (KasasaWindow *self)
       gtk_widget_add_css_class (GTK_WIDGET (self->header_bar), "headerbar-no-dimming");
       gtk_revealer_set_reveal_child (GTK_REVEALER (self->header_bar_revealer), FALSE);
     }
-
-  // Lock button
-  g_settings_bind (self->settings,
-                   "miniaturize-window",
-                   self->lock_button,
-                   "visible",
-                   G_SETTINGS_BIND_GET);
 
   // MOTION EVENT CONTROLLERS: Create motion event controllers to monitor when
   // the mouse cursor is over the content container or the menu
@@ -2272,6 +2390,10 @@ kasasa_window_init (KasasaWindow *self)
   g_signal_connect (self->lock_button,
                     "toggled",
                     G_CALLBACK (on_lock_button_toggled),
+                    self);
+  g_signal_connect (self->locked_mode_button,
+                    "clicked",
+                    G_CALLBACK (on_locked_mode_button_clicked),
                     self);
 
   // Listen to events

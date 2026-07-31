@@ -51,6 +51,10 @@ struct _KasasaContentContainer
   GtkButton               *add_hyprland_monitor_screencast_button;
   GtkButton               *remove_content_button;
   GtkButton               *stop_screencast_button;
+  GtkButton               *crop_screencast_button;
+  GtkButton               *crop_reset_button;
+  GtkButton               *crop_cancel_button;
+  GtkButton               *crop_confirm_button;
   GtkButton               *copy_screenshot_button;
   GtkMenuButton           *more_actions_button;
   GtkRevealer             *revealer_end_buttons;
@@ -423,6 +427,8 @@ kasasa_content_container_update_toolbar_sensibility (KasasaContentContainer *sel
   GtkWidget *current_content = NULL;
   gboolean is_screenshot;
   gboolean is_active_screencast;
+  gboolean crop_available;
+  gboolean crop_mode;
 
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
 
@@ -463,14 +469,43 @@ kasasa_content_container_update_toolbar_sensibility (KasasaContentContainer *sel
   is_active_screencast =
     KASASA_IS_SCREENCAST (current_content)
     && kasasa_screencast_is_active (KASASA_SCREENCAST (current_content));
+  crop_available =
+    KASASA_IS_SCREENCAST (current_content)
+    && kasasa_screencast_is_crop_available (KASASA_SCREENCAST (current_content));
+  crop_mode =
+    KASASA_IS_SCREENCAST (current_content)
+    && kasasa_screencast_is_cropping (KASASA_SCREENCAST (current_content));
   gtk_widget_set_sensitive (GTK_WIDGET (self->retake_screenshot_button),
-                            is_screenshot);
+                            is_screenshot && !crop_mode);
   gtk_widget_set_sensitive (GTK_WIDGET (self->copy_screenshot_button),
-                            is_screenshot);
+                            is_screenshot && !crop_mode);
   gtk_widget_set_visible (GTK_WIDGET (self->stop_screencast_button),
-                          is_active_screencast);
+                          is_active_screencast && !crop_mode);
   gtk_widget_set_sensitive (GTK_WIDGET (self->stop_screencast_button),
-                            is_active_screencast);
+                            is_active_screencast && !crop_mode);
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_screencast_button),
+                          crop_available && !crop_mode);
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_reset_button), crop_mode);
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_cancel_button), crop_mode);
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_confirm_button), crop_mode);
+  gtk_widget_set_halign (GTK_WIDGET (self->revealer_end_buttons),
+                         crop_mode ? GTK_ALIGN_CENTER : GTK_ALIGN_END);
+
+  gtk_widget_set_sensitive (GTK_WIDGET (self->add_screenshot_button),
+                            !crop_mode
+                            && adw_carousel_get_n_pages (self->carousel)
+                                 < MAX_N_CONTENTS);
+  gtk_widget_set_sensitive (GTK_WIDGET (self->add_screencast_button),
+                            !crop_mode
+                            && adw_carousel_get_n_pages (self->carousel)
+                                 < MAX_N_CONTENTS);
+  gtk_widget_set_sensitive (GTK_WIDGET (self->more_actions_button),
+                            !crop_mode
+                            && adw_carousel_get_n_pages (self->carousel)
+                                 < MAX_N_CONTENTS);
+  gtk_widget_set_sensitive (GTK_WIDGET (self->remove_content_button),
+                            !crop_mode
+                            && adw_carousel_get_n_pages (self->carousel) > 1);
 }
 
 static gboolean
@@ -1302,6 +1337,14 @@ finish_screencast_content (KasasaContentContainer *self,
   guint n_pages = adw_carousel_get_n_pages (self->carousel);
   guint screencast_idx = find_content_index (self, GTK_WIDGET (screencast));
 
+  if (current_content == GTK_WIDGET (screencast)
+      && kasasa_screencast_is_cropping (screencast))
+    {
+      if (window != NULL)
+        kasasa_window_set_crop_mode (window, FALSE);
+      kasasa_content_container_carousel_set_interactive (self, TRUE);
+    }
+
   kasasa_content_container_carousel_set_interactive (self, FALSE);
   kasasa_content_finish (KASASA_CONTENT (screencast));
 
@@ -1390,6 +1433,88 @@ on_stop_screencast_clicked (GtkButton *button,
 
   gtk_widget_set_sensitive (GTK_WIDGET (button), FALSE);
   finish_screencast_content (self, KASASA_SCREENCAST (current_content));
+}
+
+static KasasaScreencast *
+get_current_window_screencast (KasasaContentContainer *self)
+{
+  GtkWidget *content = get_current_content (self);
+
+  if (!KASASA_IS_SCREENCAST (content))
+    return NULL;
+
+  return KASASA_SCREENCAST (content);
+}
+
+static void
+on_crop_screencast_clicked (GtkButton *button,
+                            gpointer   user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
+  KasasaScreencast *screencast = get_current_window_screencast (self);
+
+  if (screencast != NULL
+      && kasasa_screencast_begin_crop (screencast))
+    {
+      KasasaWindow *window = get_root_window (self);
+
+      kasasa_content_container_carousel_set_interactive (self, FALSE);
+      if (window != NULL)
+        kasasa_window_set_crop_mode (window, TRUE);
+      kasasa_content_container_update_toolbar_sensibility (self);
+      kasasa_content_container_request_window_resize (self);
+    }
+}
+
+static void
+on_crop_reset_clicked (GtkButton *button,
+                       gpointer   user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
+  KasasaScreencast *screencast = get_current_window_screencast (self);
+
+  if (screencast != NULL)
+    kasasa_screencast_reset_crop (screencast);
+}
+
+static void
+on_crop_cancel_clicked (GtkButton *button,
+                        gpointer   user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
+  KasasaScreencast *screencast = get_current_window_screencast (self);
+
+  if (screencast != NULL)
+    {
+      KasasaWindow *window = get_root_window (self);
+
+      kasasa_screencast_cancel_crop (screencast);
+      kasasa_content_container_carousel_set_interactive (self, TRUE);
+      if (window != NULL)
+        kasasa_window_set_crop_mode (window, FALSE);
+      kasasa_content_container_update_toolbar_sensibility (self);
+      kasasa_content_container_request_window_resize (self);
+    }
+}
+
+static void
+on_crop_confirm_clicked (GtkButton *button,
+                         gpointer   user_data)
+{
+  KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
+  KasasaScreencast *screencast = get_current_window_screencast (self);
+
+  if (screencast != NULL
+      && kasasa_screencast_confirm_crop (screencast))
+    {
+      KasasaWindow *window = get_root_window (self);
+
+      kasasa_content_container_carousel_set_interactive (self, TRUE);
+      if (window != NULL)
+        kasasa_window_set_crop_mode (window, FALSE);
+      kasasa_content_container_update_toolbar_sensibility (self);
+      kasasa_content_container_request_window_resize (self);
+    }
 }
 
 static void
@@ -2035,6 +2160,10 @@ kasasa_content_container_class_init (KasasaContentContainerClass *klass)
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, add_hyprland_monitor_screencast_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, remove_content_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, stop_screencast_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, crop_screencast_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, crop_reset_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, crop_cancel_button);
+  gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, crop_confirm_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, copy_screenshot_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, more_actions_button);
   gtk_widget_class_bind_template_child (widget_class, KasasaContentContainer, revealer_start_buttons);
@@ -2100,6 +2229,22 @@ kasasa_content_container_init (KasasaContentContainer *self)
   g_signal_connect (self->stop_screencast_button,
                     "clicked",
                     G_CALLBACK (on_stop_screencast_clicked),
+                    self);
+  g_signal_connect (self->crop_screencast_button,
+                    "clicked",
+                    G_CALLBACK (on_crop_screencast_clicked),
+                    self);
+  g_signal_connect (self->crop_reset_button,
+                    "clicked",
+                    G_CALLBACK (on_crop_reset_clicked),
+                    self);
+  g_signal_connect (self->crop_cancel_button,
+                    "clicked",
+                    G_CALLBACK (on_crop_cancel_clicked),
+                    self);
+  g_signal_connect (self->crop_confirm_button,
+                    "clicked",
+                    G_CALLBACK (on_crop_confirm_clicked),
                     self);
   g_signal_connect (self->copy_screenshot_button,
                     "clicked",

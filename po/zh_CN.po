@@ -242,13 +242,13 @@ msgstr ""
 "使用 --list-windows 或 --list-monitors 查看 Hyprland 捕获目标。\n"
 "原生显示器捕获需要同时使用 --monitor 和 --screencast。"
 
-#: src/kasasa-window.c:1950
-msgid "Unblock miniaturization"
-msgstr "允许缩小窗口"
+#: src/kasasa-window.c:1542 src/kasasa-window.ui:139
+msgid "Unlock preview"
+msgstr "解锁预览窗口"
 
-#: src/kasasa-window.c:1956 src/kasasa-window.ui:87
-msgid "Block miniaturization"
-msgstr "禁止缩小窗口"
+#: src/kasasa-window.c:1543 src/kasasa-window.ui:87
+msgid "Lock preview"
+msgstr "锁定预览窗口"
 
 #: src/kasasa-window.ui:70
 msgid "Trigger auto discard timer"

@@ -17,6 +17,18 @@
   opacity: 0.75;
 }
 
+.preview-lock-button {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px;
+  opacity: 0.72;
+}
+
+.preview-lock-button:hover,
+.preview-lock-button:focus-visible {
+  opacity: 1;
+}
+
 
 /* TOOLBAR BUTTONS */
 /* See https://gitlab.gnome.org/GNOME/loupe/-/blob/40d425ac803700511a2ed0d2ba150bd557278434/data/resources/style.css#L9 */

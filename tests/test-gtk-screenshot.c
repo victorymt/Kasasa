@@ -27,6 +27,7 @@
 #include <wayland-client-protocol.h>
 
 #include "kasasa-content.h"
+#include "kasasa-crop-paintable.h"
 #include "kasasa-dmabuf-paintable.h"
 #include "kasasa-screencast.h"
 #include "kasasa-window-query.h"
@@ -116,27 +117,90 @@ test_screencast_layout (void)
 {
   g_autoptr (KasasaScreencast) screencast = kasasa_screencast_new ();
   GtkWidget *stack = adw_bin_get_child (ADW_BIN (screencast));
+  GtkWidget *overlay;
+  GtkWidget *picture;
   GtkWidget *child;
-  GtkPicture *picture = NULL;
 
   g_object_ref_sink (screencast);
   g_assert_true (GTK_IS_STACK (stack));
 
+  overlay = NULL;
   for (child = gtk_widget_get_first_child (stack);
        child != NULL;
        child = gtk_widget_get_next_sibling (child))
     {
-      if (GTK_IS_PICTURE (child))
+      if (GTK_IS_OVERLAY (child))
         {
-          picture = GTK_PICTURE (child);
+          overlay = child;
           break;
         }
     }
-
-  g_assert_nonnull (picture);
-  g_assert_cmpint (gtk_picture_get_content_fit (picture),
+  g_assert_true (GTK_IS_OVERLAY (overlay));
+  picture = gtk_overlay_get_child (GTK_OVERLAY (overlay));
+  g_assert_true (GTK_IS_PICTURE (picture));
+  g_assert_cmpint (gtk_picture_get_content_fit (GTK_PICTURE (picture)),
                    ==,
                    GTK_CONTENT_FIT_CONTAIN);
+}
+
+static void
+count_paintable_invalidation (GdkPaintable *paintable,
+                              guint        *count)
+{
+  (*count)++;
+}
+
+static void
+test_crop_paintable_dimensions (void)
+{
+  static const guint8 pixels[4 * 2 * 4] = { 0 };
+  g_autoptr (GBytes) bytes = g_bytes_new_static (pixels, sizeof pixels);
+  g_autoptr (GdkTexture) texture = NULL;
+  g_autoptr (KasasaCropPaintable) crop = NULL;
+  GtkSnapshot *snapshot;
+  GskRenderNode *node;
+  guint contents_invalidations = 0;
+  guint size_invalidations = 0;
+
+  texture = gdk_memory_texture_new (4,
+                                    2,
+                                    GDK_MEMORY_R8G8B8A8_PREMULTIPLIED,
+                                    bytes,
+                                    4 * 4);
+  crop = kasasa_crop_paintable_new (GDK_PAINTABLE (texture));
+  g_signal_connect (crop,
+                    "invalidate-contents",
+                    G_CALLBACK (count_paintable_invalidation),
+                    &contents_invalidations);
+  g_signal_connect (crop,
+                    "invalidate-size",
+                    G_CALLBACK (count_paintable_invalidation),
+                    &size_invalidations);
+
+  g_signal_emit_by_name (texture, "invalidate-contents");
+  g_assert_cmpuint (contents_invalidations, ==, 1);
+  g_assert_cmpuint (size_invalidations, ==, 0);
+
+  kasasa_crop_paintable_set_rect (crop, 0.25, 0.0, 0.5, 1.0);
+  g_assert_cmpuint (contents_invalidations, ==, 2);
+  g_assert_cmpuint (size_invalidations, ==, 1);
+
+  g_assert_cmpint (gdk_paintable_get_intrinsic_width (GDK_PAINTABLE (crop)),
+                   ==,
+                   2);
+  g_assert_cmpint (gdk_paintable_get_intrinsic_height (GDK_PAINTABLE (crop)),
+                   ==,
+                   2);
+  g_assert_cmpfloat (gdk_paintable_get_intrinsic_aspect_ratio (
+                       GDK_PAINTABLE (crop)),
+                     ==,
+                     1.0);
+
+  snapshot = gtk_snapshot_new ();
+  gdk_paintable_snapshot (GDK_PAINTABLE (crop), snapshot, 20, 20);
+  node = gtk_snapshot_free_to_node (snapshot);
+  g_assert_nonnull (node);
+  gsk_render_node_unref (node);
 }
 
 static void
@@ -444,6 +508,8 @@ main (int argc, char **argv)
 
   g_test_add_func ("/gtk/screenshot/layout", test_screenshot_layout);
   g_test_add_func ("/gtk/screencast/layout", test_screencast_layout);
+  g_test_add_func ("/gtk/screencast/crop-paintable-dimensions",
+                   test_crop_paintable_dimensions);
   g_test_add_func ("/gtk/screencast/dmabuf-transform-dimensions",
                    test_dmabuf_paintable_transform_dimensions);
   g_test_add_func ("/gtk/content/fit-rounding-gaps",

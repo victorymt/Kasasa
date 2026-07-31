@@ -33,6 +33,12 @@ G_DECLARE_FINAL_TYPE (KasasaScreencast, kasasa_screencast, KASASA, SCREENCAST, A
 
 KasasaScreencast *kasasa_screencast_new (void);
 gboolean kasasa_screencast_is_active (KasasaScreencast *screencast);
+gboolean kasasa_screencast_is_crop_available (KasasaScreencast *screencast);
+gboolean kasasa_screencast_is_cropping (KasasaScreencast *screencast);
+gboolean kasasa_screencast_begin_crop (KasasaScreencast *screencast);
+gboolean kasasa_screencast_confirm_crop (KasasaScreencast *screencast);
+void kasasa_screencast_cancel_crop (KasasaScreencast *screencast);
+void kasasa_screencast_reset_crop (KasasaScreencast *screencast);
 /* Hyprland-native live pin of a specific window (no Portal). */
 gboolean kasasa_screencast_show_hyprland (KasasaScreencast *screencast,
                                           guint32           window_handle,

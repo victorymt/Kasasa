@@ -97,6 +97,8 @@ void kasasa_window_block_miniaturization (KasasaWindow *window,
                                           gboolean      block);
 void kasasa_window_set_controls_popup_active (KasasaWindow *window,
                                               gboolean      active);
+void kasasa_window_set_crop_mode (KasasaWindow *window,
+                                  gboolean      active);
 /* Keep a newly mapped CLI pin transparent until its first content and Wayland
  * geometry have both settled. */
 void kasasa_window_begin_initial_reveal (KasasaWindow *window);

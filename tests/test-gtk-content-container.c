@@ -340,6 +340,12 @@ kasasa_window_set_controls_popup_active (KasasaWindow *window,
 }
 
 void
+kasasa_window_set_crop_mode (KasasaWindow *window,
+                             gboolean      active)
+{
+}
+
+void
 kasasa_window_finish_initial_reveal (KasasaWindow *window)
 {
   gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);

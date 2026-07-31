@@ -59,6 +59,7 @@ kasasa_sources = [
   'kasasa-screenshot.c',
   'kasasa-region-capture.c',
   'kasasa-screencast.c',
+  'kasasa-crop-paintable.c',
   'kasasa-dmabuf-paintable.c',
   'kasasa-content-container.c',
   'kasasa-window-query.c',

@@ -25,6 +25,7 @@
 #include <string.h>
 #include <wayland-client-protocol.h>
 
+#include "kasasa-crop-paintable.h"
 #include "kasasa-dmabuf-paintable.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-screencast.h"
@@ -34,6 +35,8 @@
 #define DEFAULT_HEIGHT 200
 #define DEFAULT_SCREENCAST_FRAME_RATE 30U
 #define MAX_SCREENCAST_FRAME_RATE     120U
+#define MIN_CROP_DIMENSION             32
+#define CROP_HANDLE_RADIUS             12.0
 
 enum
 {
@@ -78,6 +81,9 @@ struct _KasasaScreencast
   GtkStack                *stack;
   AdwStatusPage           *no_screencast_page;
   GtkPicture              *picture;
+  GtkOverlay              *picture_overlay;
+  GtkDrawingArea          *crop_overlay;
+  GtkGestureDrag          *crop_drag;
 
   /* Instance variables */
   GstElement              *pipeline;
@@ -93,11 +99,30 @@ struct _KasasaScreencast
   guint                    frame_rate;
   KasasaHyprlandStreamFormat stream_format;
   KasasaDmabufPaintable   *dmabuf_paintable;
+  KasasaCropPaintable     *crop_paintable;
   GMutex                   preview_update_lock;
   PreviewFrameUpdate      *pending_preview_update;
   gboolean                 preview_update_scheduled;
   gboolean                 direct_dmabuf_failed;
   gboolean                 direct_dmabuf_active;
+  gboolean                 crop_supported;
+  gboolean                 crop_mode;
+  gboolean                 crop_applied;
+  gdouble                  crop_x;
+  gdouble                  crop_y;
+  gdouble                  crop_width;
+  gdouble                  crop_height;
+  gdouble                  crop_original_x;
+  gdouble                  crop_original_y;
+  gdouble                  crop_original_width;
+  gdouble                  crop_original_height;
+  gdouble                  crop_drag_start_x;
+  gdouble                  crop_drag_start_y;
+  gdouble                  crop_drag_x;
+  gdouble                  crop_drag_y;
+  gdouble                  crop_drag_width;
+  gdouble                  crop_drag_height;
+  guint                    crop_drag_mode;
 };
 
 static void kasasa_screencast_content_interface_init (KasasaContentInterface *iface);
@@ -192,13 +217,35 @@ kasasa_screencast_get_dimensions (KasasaContent *content,
   g_return_if_fail (KASASA_IS_SCREENCAST (content));
 
   self = KASASA_SCREENCAST (content);
-  *width = self->dimension[DIMENSION_WIDTH];
-  *height = self->dimension[DIMENSION_HEIGHT];
+  if (self->crop_mode
+      && self->stream_width > 0
+      && self->stream_height > 0)
+    {
+      *width = self->stream_width;
+      *height = self->stream_height;
+    }
+  else
+    {
+      *width = self->dimension[DIMENSION_WIDTH];
+      *height = self->dimension[DIMENSION_HEIGHT];
+    }
 }
 
 static void
 set_no_screencast (KasasaScreencast *self)
 {
+  self->crop_mode = FALSE;
+  self->crop_supported = FALSE;
+  self->crop_applied = FALSE;
+  self->crop_x = 0;
+  self->crop_y = 0;
+  self->crop_width = 1;
+  self->crop_height = 1;
+  if (self->crop_paintable != NULL)
+    kasasa_crop_paintable_reset (self->crop_paintable);
+  if (self->crop_overlay != NULL)
+    gtk_widget_set_visible (GTK_WIDGET (self->crop_overlay), FALSE);
+
   self->dimension[DIMENSION_WIDTH] = DEFAULT_WIDTH;
   self->dimension[DIMENSION_HEIGHT] = DEFAULT_HEIGHT;
 
@@ -267,8 +314,20 @@ new_dimension (KasasaScreencast *self,
                gint              new_width,
                gint              new_height)
 {
-  new_width = MAX (new_width, DEFAULT_WIDTH);
-  new_height = MAX (new_height, DEFAULT_HEIGHT);
+  if (self->crop_applied)
+    {
+      new_width = MAX (MIN_CROP_DIMENSION,
+                       (gint) llround ((gdouble) new_width
+                                      * self->crop_width));
+      new_height = MAX (MIN_CROP_DIMENSION,
+                        (gint) llround ((gdouble) new_height
+                                       * self->crop_height));
+    }
+  else
+    {
+      new_width = MAX (new_width, DEFAULT_WIDTH);
+      new_height = MAX (new_height, DEFAULT_HEIGHT);
+    }
 
   if (self->dimension[DIMENSION_WIDTH] != new_width
       || self->dimension[DIMENSION_HEIGHT] != new_height)
@@ -282,6 +341,373 @@ new_dimension (KasasaScreencast *self,
 
   self->dimension[DIMENSION_WIDTH] = new_width;
   self->dimension[DIMENSION_HEIGHT] = new_height;
+}
+
+enum
+{
+  CROP_DRAG_NONE,
+  CROP_DRAG_NEW,
+  CROP_DRAG_MOVE,
+  CROP_DRAG_TOP_LEFT,
+  CROP_DRAG_TOP_RIGHT,
+  CROP_DRAG_BOTTOM_LEFT,
+  CROP_DRAG_BOTTOM_RIGHT,
+};
+
+static void
+set_crop_draft_rect (KasasaScreencast *self,
+                     gdouble            x,
+                     gdouble            y,
+                     gdouble            width,
+                     gdouble            height)
+{
+  x = CLAMP (x, 0.0, 1.0);
+  y = CLAMP (y, 0.0, 1.0);
+  width = CLAMP (width, 0.0, 1.0 - x);
+  height = CLAMP (height, 0.0, 1.0 - y);
+
+  self->crop_x = x;
+  self->crop_y = y;
+  self->crop_width = width;
+  self->crop_height = height;
+  if (self->crop_overlay != NULL)
+    gtk_widget_queue_draw (GTK_WIDGET (self->crop_overlay));
+}
+
+static void
+set_crop_rect_from_pixels (KasasaScreencast *self,
+                           gdouble            x,
+                           gdouble            y,
+                           gdouble            width,
+                           gdouble            height)
+{
+  gdouble area_width = gtk_widget_get_width (GTK_WIDGET (self->crop_overlay));
+  gdouble area_height = gtk_widget_get_height (GTK_WIDGET (self->crop_overlay));
+  gdouble minimum_width;
+  gdouble minimum_height;
+
+  if (area_width <= 0 || area_height <= 0)
+    return;
+
+  minimum_width = MIN ((gdouble) MIN_CROP_DIMENSION, area_width);
+  minimum_height = MIN ((gdouble) MIN_CROP_DIMENSION, area_height);
+  width = MAX (width, minimum_width);
+  height = MAX (height, minimum_height);
+  x = CLAMP (x, 0.0, area_width - width);
+  y = CLAMP (y, 0.0, area_height - height);
+  width = MIN (width, area_width - x);
+  height = MIN (height, area_height - y);
+
+  set_crop_draft_rect (self,
+                       x / area_width,
+                       y / area_height,
+                       width / area_width,
+                       height / area_height);
+}
+
+static gboolean
+point_near (gdouble x,
+            gdouble y,
+            gdouble target_x,
+            gdouble target_y)
+{
+  return hypot (x - target_x, y - target_y) <= CROP_HANDLE_RADIUS;
+}
+
+static void
+draw_crop_overlay (GtkDrawingArea *area,
+                   cairo_t        *cr,
+                   gint            width,
+                   gint            height,
+                   KasasaScreencast *self)
+{
+  gdouble left;
+  gdouble top;
+  gdouble right;
+  gdouble bottom;
+
+  if (!self->crop_mode || width <= 0 || height <= 0)
+    return;
+
+  left = self->crop_x * width;
+  top = self->crop_y * height;
+  right = (self->crop_x + self->crop_width) * width;
+  bottom = (self->crop_y + self->crop_height) * height;
+
+  cairo_set_source_rgba (cr, 0, 0, 0, 0.58);
+  cairo_rectangle (cr, 0, 0, width, top);
+  cairo_rectangle (cr, 0, bottom, width, height - bottom);
+  cairo_rectangle (cr, 0, top, left, bottom - top);
+  cairo_rectangle (cr, right, top, width - right, bottom - top);
+  cairo_fill (cr);
+
+  cairo_set_line_width (cr, 2.0);
+  cairo_set_source_rgba (cr, 1, 1, 1, 0.95);
+  cairo_rectangle (cr, left, top, right - left, bottom - top);
+  cairo_stroke (cr);
+
+  cairo_set_line_width (cr, 4.0);
+  cairo_move_to (cr, left, top + 16);
+  cairo_line_to (cr, left, top);
+  cairo_line_to (cr, left + 16, top);
+  cairo_move_to (cr, right - 16, top);
+  cairo_line_to (cr, right, top);
+  cairo_line_to (cr, right, top + 16);
+  cairo_move_to (cr, left, bottom - 16);
+  cairo_line_to (cr, left, bottom);
+  cairo_line_to (cr, left + 16, bottom);
+  cairo_move_to (cr, right - 16, bottom);
+  cairo_line_to (cr, right, bottom);
+  cairo_line_to (cr, right, bottom - 16);
+  cairo_stroke (cr);
+}
+
+static void
+crop_drag_begin (GtkGestureDrag  *gesture,
+                 gdouble          start_x,
+                 gdouble          start_y,
+                 KasasaScreencast *self)
+{
+  gdouble area_width = gtk_widget_get_width (GTK_WIDGET (self->crop_overlay));
+  gdouble area_height = gtk_widget_get_height (GTK_WIDGET (self->crop_overlay));
+  gdouble left = self->crop_x * area_width;
+  gdouble top = self->crop_y * area_height;
+  gdouble right = (self->crop_x + self->crop_width) * area_width;
+  gdouble bottom = (self->crop_y + self->crop_height) * area_height;
+
+  if (!self->crop_mode || area_width <= 0 || area_height <= 0)
+    return;
+
+  /* Keep the outer GtkWindowHandle from treating this same sequence as a
+   * request to move the preview window while crop mode is active. */
+  gtk_gesture_set_state (GTK_GESTURE (gesture),
+                         GTK_EVENT_SEQUENCE_CLAIMED);
+
+  self->crop_drag_start_x = start_x;
+  self->crop_drag_start_y = start_y;
+  self->crop_drag_x = left;
+  self->crop_drag_y = top;
+  self->crop_drag_width = right - left;
+  self->crop_drag_height = bottom - top;
+
+  if (point_near (start_x, start_y, left, top))
+    self->crop_drag_mode = CROP_DRAG_TOP_LEFT;
+  else if (point_near (start_x, start_y, right, top))
+    self->crop_drag_mode = CROP_DRAG_TOP_RIGHT;
+  else if (point_near (start_x, start_y, left, bottom))
+    self->crop_drag_mode = CROP_DRAG_BOTTOM_LEFT;
+  else if (point_near (start_x, start_y, right, bottom))
+    self->crop_drag_mode = CROP_DRAG_BOTTOM_RIGHT;
+  else if (start_x >= left && start_x <= right
+           && start_y >= top && start_y <= bottom)
+    self->crop_drag_mode = CROP_DRAG_MOVE;
+  else
+    self->crop_drag_mode = CROP_DRAG_NEW;
+}
+
+static void
+crop_drag_update (GtkGestureDrag  *gesture,
+                  gdouble          offset_x,
+                  gdouble          offset_y,
+                  KasasaScreencast *self)
+{
+  gdouble x = self->crop_drag_x;
+  gdouble y = self->crop_drag_y;
+  gdouble width = self->crop_drag_width;
+  gdouble height = self->crop_drag_height;
+  gdouble current_x = self->crop_drag_start_x + offset_x;
+  gdouble current_y = self->crop_drag_start_y + offset_y;
+
+  if (!self->crop_mode)
+    return;
+
+  switch (self->crop_drag_mode)
+    {
+    case CROP_DRAG_NEW:
+      x = MIN (self->crop_drag_start_x, current_x);
+      y = MIN (self->crop_drag_start_y, current_y);
+      width = fabs (current_x - self->crop_drag_start_x);
+      height = fabs (current_y - self->crop_drag_start_y);
+      break;
+    case CROP_DRAG_MOVE:
+      x += offset_x;
+      y += offset_y;
+      break;
+    case CROP_DRAG_TOP_LEFT:
+      x = MIN (current_x, self->crop_drag_x + self->crop_drag_width - MIN_CROP_DIMENSION);
+      y = MIN (current_y, self->crop_drag_y + self->crop_drag_height - MIN_CROP_DIMENSION);
+      width = self->crop_drag_x + self->crop_drag_width - x;
+      height = self->crop_drag_y + self->crop_drag_height - y;
+      break;
+    case CROP_DRAG_TOP_RIGHT:
+      y = MIN (current_y, self->crop_drag_y + self->crop_drag_height - MIN_CROP_DIMENSION);
+      width = current_x - self->crop_drag_x;
+      height = self->crop_drag_y + self->crop_drag_height - y;
+      break;
+    case CROP_DRAG_BOTTOM_LEFT:
+      x = MIN (current_x, self->crop_drag_x + self->crop_drag_width - MIN_CROP_DIMENSION);
+      width = self->crop_drag_x + self->crop_drag_width - x;
+      height = current_y - self->crop_drag_y;
+      break;
+    case CROP_DRAG_BOTTOM_RIGHT:
+      width = current_x - self->crop_drag_x;
+      height = current_y - self->crop_drag_y;
+      break;
+    default:
+      return;
+    }
+
+  set_crop_rect_from_pixels (self, x, y, width, height);
+}
+
+static void
+crop_drag_end (GtkGestureDrag  *gesture,
+               gdouble          offset_x,
+               gdouble          offset_y,
+               KasasaScreencast *self)
+{
+  self->crop_drag_mode = CROP_DRAG_NONE;
+}
+
+static void
+set_picture_source (KasasaScreencast *self,
+                    GdkPaintable     *source)
+{
+  kasasa_crop_paintable_set_source (self->crop_paintable, source);
+  gtk_picture_set_paintable (self->picture,
+                             GDK_PAINTABLE (self->crop_paintable));
+}
+
+static void
+set_committed_crop_rect (KasasaScreencast *self,
+                         gdouble            x,
+                         gdouble            y,
+                         gdouble            width,
+                         gdouble            height)
+{
+  self->crop_x = x;
+  self->crop_y = y;
+  self->crop_width = width;
+  self->crop_height = height;
+  kasasa_crop_paintable_set_rect (self->crop_paintable,
+                                  x, y, width, height);
+}
+
+gboolean
+kasasa_screencast_is_crop_available (KasasaScreencast *self)
+{
+  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
+
+  return !self->finished && self->crop_supported;
+}
+
+gboolean
+kasasa_screencast_is_cropping (KasasaScreencast *self)
+{
+  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
+
+  return self->crop_mode;
+}
+
+gboolean
+kasasa_screencast_begin_crop (KasasaScreencast *self)
+{
+  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
+
+  if (!kasasa_screencast_is_crop_available (self) || self->crop_mode)
+    return FALSE;
+
+  self->crop_original_x = self->crop_applied ? self->crop_x : 0;
+  self->crop_original_y = self->crop_applied ? self->crop_y : 0;
+  self->crop_original_width = self->crop_applied ? self->crop_width : 1;
+  self->crop_original_height = self->crop_applied ? self->crop_height : 1;
+
+  self->crop_mode = TRUE;
+  /* Keep the source stable while editing. The draft rectangle is rendered by
+   * the overlay and is committed to the paintable only after confirmation. */
+  kasasa_crop_paintable_reset (self->crop_paintable);
+  if (self->crop_applied)
+    set_crop_draft_rect (self,
+                         self->crop_x,
+                         self->crop_y,
+                         self->crop_width,
+                         self->crop_height);
+  else
+    set_crop_draft_rect (self, 0.05, 0.05, 0.9, 0.9);
+
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_overlay), TRUE);
+  gtk_widget_set_can_target (GTK_WIDGET (self->crop_overlay), TRUE);
+  gtk_widget_queue_draw (GTK_WIDGET (self->crop_overlay));
+  return TRUE;
+}
+
+gboolean
+kasasa_screencast_confirm_crop (KasasaScreencast *self)
+{
+  gint source_width;
+  gint source_height;
+
+  g_return_val_if_fail (KASASA_IS_SCREENCAST (self), FALSE);
+
+  if (!self->crop_mode)
+    return FALSE;
+
+  self->crop_mode = FALSE;
+  self->crop_applied = !(self->crop_x == 0 && self->crop_y == 0
+                          && self->crop_width == 1
+                          && self->crop_height == 1);
+  set_committed_crop_rect (self,
+                           self->crop_x,
+                           self->crop_y,
+                           self->crop_width,
+                           self->crop_height);
+
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_overlay), FALSE);
+  gtk_widget_set_can_target (GTK_WIDGET (self->crop_overlay), FALSE);
+
+  source_width = self->stream_width > 0
+                 ? self->stream_width
+                 : (self->crop_applied && self->crop_width > 0
+                    ? (gint) llround ((gdouble) self->dimension[DIMENSION_WIDTH]
+                                      / self->crop_width)
+                    : self->dimension[DIMENSION_WIDTH]);
+  source_height = self->stream_height > 0
+                  ? self->stream_height
+                  : (self->crop_applied && self->crop_height > 0
+                     ? (gint) llround ((gdouble) self->dimension[DIMENSION_HEIGHT]
+                                       / self->crop_height)
+                     : self->dimension[DIMENSION_HEIGHT]);
+  new_dimension (self, source_width, source_height);
+  return TRUE;
+}
+
+void
+kasasa_screencast_cancel_crop (KasasaScreencast *self)
+{
+  g_return_if_fail (KASASA_IS_SCREENCAST (self));
+
+  if (!self->crop_mode)
+    return;
+
+  self->crop_mode = FALSE;
+  set_committed_crop_rect (self,
+                           self->crop_original_x,
+                           self->crop_original_y,
+                           self->crop_original_width,
+                           self->crop_original_height);
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_overlay), FALSE);
+  gtk_widget_set_can_target (GTK_WIDGET (self->crop_overlay), FALSE);
+}
+
+void
+kasasa_screencast_reset_crop (KasasaScreencast *self)
+{
+  g_return_if_fail (KASASA_IS_SCREENCAST (self));
+
+  if (!self->crop_mode)
+    return;
+
+  set_crop_draft_rect (self, 0, 0, 1, 1);
 }
 
 static gboolean
@@ -417,9 +843,8 @@ apply_pending_preview_update (gpointer user_data)
                                        update->transform,
                                        update->y_invert);
   if (gtk_picture_get_paintable (self->picture)
-      != GDK_PAINTABLE (self->dmabuf_paintable))
-    gtk_picture_set_paintable (self->picture,
-                               GDK_PAINTABLE (self->dmabuf_paintable));
+      != GDK_PAINTABLE (self->crop_paintable))
+    set_picture_source (self, GDK_PAINTABLE (self->dmabuf_paintable));
 
   if (!self->direct_dmabuf_active)
     {
@@ -980,6 +1405,10 @@ show_hyprland_source (KasasaScreencast *self,
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
   self->finished = FALSE;
+  self->crop_supported = output_name == NULL;
+  self->crop_mode = FALSE;
+  self->crop_applied = FALSE;
+  set_committed_crop_rect (self, 0, 0, 1, 1);
   self->stream_width = 0;
   self->stream_height = 0;
   self->stream_format = KASASA_HYPRLAND_STREAM_FORMAT_BGRX;
@@ -1003,9 +1432,7 @@ show_hyprland_source (KasasaScreencast *self,
       g_info ("Hyprland native window preview uses direct GTK DMA-BUF "
               "import with wl_shm memory-texture fallback at up to %u FPS",
               self->frame_rate);
-      gtk_picture_set_paintable (
-        self->picture,
-        GDK_PAINTABLE (self->dmabuf_paintable));
+      set_picture_source (self, GDK_PAINTABLE (self->dmabuf_paintable));
 
       self->hypr_stream = kasasa_hyprland_stream_start_dmabuf (
         window_handle,
@@ -1028,7 +1455,8 @@ show_hyprland_source (KasasaScreencast *self,
           return FALSE;
         }
 
-      gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
+      gtk_stack_set_visible_child (self->stack,
+                                   GTK_WIDGET (self->picture_overlay));
       return TRUE;
     }
 
@@ -1098,7 +1526,7 @@ show_hyprland_source (KasasaScreencast *self,
                                    G_IO_ERROR_FAILED,
                                    _("The screencast pipeline could not be linked"));
     }
-  gtk_picture_set_paintable (self->picture, paintable);
+  set_picture_source (self, paintable);
 
   self->bus = gst_element_get_bus (self->pipeline);
   if (self->bus == NULL)
@@ -1138,7 +1566,8 @@ show_hyprland_source (KasasaScreencast *self,
       return FALSE;
     }
 
-  gtk_stack_set_visible_child (self->stack, GTK_WIDGET (self->picture));
+  gtk_stack_set_visible_child (self->stack,
+                               GTK_WIDGET (self->picture_overlay));
 
   return TRUE;
 
@@ -1191,6 +1620,7 @@ kasasa_screencast_dispose (GObject *object)
 
   kasasa_screencast_finish (KASASA_CONTENT (self));
   clear_gstreamer_pipeline (self);
+  g_clear_object (&self->crop_paintable);
   g_clear_object (&self->dmabuf_paintable);
 
   G_OBJECT_CLASS (kasasa_screencast_parent_class)->dispose (object);
@@ -1307,6 +1737,12 @@ kasasa_screencast_init (KasasaScreencast *self)
   self->frame_rate = DEFAULT_SCREENCAST_FRAME_RATE;
   g_mutex_init (&self->preview_update_lock);
   self->dmabuf_paintable = kasasa_dmabuf_paintable_new ();
+  self->crop_paintable = kasasa_crop_paintable_new (
+    GDK_PAINTABLE (self->dmabuf_paintable));
+  self->crop_x = 0;
+  self->crop_y = 0;
+  self->crop_width = 1;
+  self->crop_height = 1;
 
   // Initial dimension to avoid 0 value
   self->dimension[DIMENSION_WIDTH] = DEFAULT_WIDTH;
@@ -1331,9 +1767,49 @@ kasasa_screencast_init (KasasaScreencast *self)
   gtk_widget_set_halign (GTK_WIDGET (self->picture), GTK_ALIGN_FILL);
   gtk_widget_set_valign (GTK_WIDGET (self->picture), GTK_ALIGN_FILL);
 
+  self->picture_overlay = GTK_OVERLAY (gtk_overlay_new ());
+  gtk_widget_set_hexpand (GTK_WIDGET (self->picture_overlay), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self->picture_overlay), TRUE);
+  gtk_widget_set_halign (GTK_WIDGET (self->picture_overlay), GTK_ALIGN_FILL);
+  gtk_widget_set_valign (GTK_WIDGET (self->picture_overlay), GTK_ALIGN_FILL);
+  gtk_overlay_set_child (self->picture_overlay, GTK_WIDGET (self->picture));
+
+  self->crop_overlay = GTK_DRAWING_AREA (gtk_drawing_area_new ());
+  gtk_widget_set_hexpand (GTK_WIDGET (self->crop_overlay), TRUE);
+  gtk_widget_set_vexpand (GTK_WIDGET (self->crop_overlay), TRUE);
+  gtk_widget_set_halign (GTK_WIDGET (self->crop_overlay), GTK_ALIGN_FILL);
+  gtk_widget_set_valign (GTK_WIDGET (self->crop_overlay), GTK_ALIGN_FILL);
+  gtk_widget_set_visible (GTK_WIDGET (self->crop_overlay), FALSE);
+  gtk_widget_set_can_target (GTK_WIDGET (self->crop_overlay), FALSE);
+  gtk_drawing_area_set_draw_func (self->crop_overlay,
+                                  (GtkDrawingAreaDrawFunc) draw_crop_overlay,
+                                  self,
+                                  NULL);
+  gtk_overlay_add_overlay (self->picture_overlay,
+                           GTK_WIDGET (self->crop_overlay));
+  self->crop_drag = GTK_GESTURE_DRAG (gtk_gesture_drag_new ());
+  gtk_event_controller_set_propagation_phase (
+    GTK_EVENT_CONTROLLER (self->crop_drag),
+    GTK_PHASE_CAPTURE);
+  gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (self->crop_drag), 1);
+  g_signal_connect (self->crop_drag,
+                    "drag-begin",
+                    G_CALLBACK (crop_drag_begin),
+                    self);
+  g_signal_connect (self->crop_drag,
+                    "drag-update",
+                    G_CALLBACK (crop_drag_update),
+                    self);
+  g_signal_connect (self->crop_drag,
+                    "drag-end",
+                    G_CALLBACK (crop_drag_end),
+                    self);
+  gtk_widget_add_controller (GTK_WIDGET (self->crop_overlay),
+                             GTK_EVENT_CONTROLLER (self->crop_drag));
+
   gtk_widget_set_hexpand (GTK_WIDGET (self->stack), TRUE);
   gtk_widget_set_vexpand (GTK_WIDGET (self->stack), TRUE);
-  gtk_stack_add_child (self->stack, GTK_WIDGET (self->picture));
+  gtk_stack_add_child (self->stack, GTK_WIDGET (self->picture_overlay));
 
   adw_bin_set_child (ADW_BIN (self), GTK_WIDGET (self->stack));
   gtk_widget_set_layout_manager (GTK_WIDGET (self), NULL);
