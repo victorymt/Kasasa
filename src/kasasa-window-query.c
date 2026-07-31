@@ -197,6 +197,7 @@ kasasa_window_client_copy (const KasasaWindowClient *src)
   copy->width = src->width;
   copy->height = src->height;
   copy->monitor = src->monitor;
+  copy->focus_history_id = src->focus_history_id;
   copy->mapped = src->mapped;
   copy->floating = src->floating;
   return copy;
@@ -217,6 +218,8 @@ client_from_json_object (JsonObject *object)
   client->mapped = json_object_get_boolean_member_with_default (object, "mapped", FALSE);
   client->floating = json_object_get_boolean_member_with_default (object, "floating", FALSE);
   client->monitor = json_object_get_int_member_with_default (object, "monitor", 0);
+  client->focus_history_id = json_object_get_int_member_with_default (
+    object, "focusHistoryID", G_MAXINT);
 
   if (json_object_has_member (object, "workspace")
       && JSON_NODE_HOLDS_OBJECT (json_object_get_member (object, "workspace")))
@@ -253,6 +256,32 @@ client_from_json_object (JsonObject *object)
     }
 
   return client;
+}
+
+static gint
+compare_clients_by_focus_history (gconstpointer a,
+                                  gconstpointer b)
+{
+  const KasasaWindowClient *client_a = *(KasasaWindowClient * const *) a;
+  const KasasaWindowClient *client_b = *(KasasaWindowClient * const *) b;
+  gint focus_a = client_a->focus_history_id >= 0
+                 ? client_a->focus_history_id : G_MAXINT;
+  gint focus_b = client_b->focus_history_id >= 0
+                 ? client_b->focus_history_id : G_MAXINT;
+  gint result;
+
+  if (focus_a != focus_b)
+    return focus_a < focus_b ? -1 : 1;
+
+  result = g_strcmp0 (client_a->class_name, client_b->class_name);
+  if (result != 0)
+    return result;
+
+  result = g_strcmp0 (client_a->title, client_b->title);
+  if (result != 0)
+    return result;
+
+  return g_strcmp0 (client_a->address, client_b->address);
 }
 
 GPtrArray *
@@ -301,6 +330,8 @@ kasasa_window_query_parse_clients_json (const gchar *json,
 
       g_ptr_array_add (clients, client);
     }
+
+  g_ptr_array_sort (clients, compare_clients_by_focus_history);
 
   return clients;
 }

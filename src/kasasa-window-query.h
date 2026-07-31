@@ -62,6 +62,7 @@ typedef struct
   gint width;
   gint height;
   gint monitor;
+  gint focus_history_id;
   gboolean mapped;
   gboolean floating;
 } KasasaWindowClient;

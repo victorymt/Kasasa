@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <gio/gio.h>
+
 #include "kasasa-window-query.h"
 
 G_BEGIN_DECLS
@@ -31,6 +33,13 @@ G_BEGIN_DECLS
  */
 gchar *kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
                                            GError                  **error);
+void kasasa_hyprland_capture_screenshot_async (
+  const KasasaWindowClient *client,
+  GCancellable             *cancellable,
+  GAsyncReadyCallback       callback,
+  gpointer                  user_data);
+gchar *kasasa_hyprland_capture_screenshot_finish (GAsyncResult *result,
+                                                  GError      **error);
 
 gboolean kasasa_hyprland_capture_available (void);
 

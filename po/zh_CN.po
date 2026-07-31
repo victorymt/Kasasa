@@ -7,8 +7,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kasasa\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-31 16:32+0800\n"
-"PO-Revision-Date: 2026-07-29 00:00+0800\n"
+"POT-Creation-Date: 2026-07-31 17:13+0800\n"
+"PO-Revision-Date: 2026-07-31 17:13+0800\n"
 "Last-Translator: victorymt\n"
 "Language-Team: Chinese (Simplified)\n"
 "Language: zh_CN\n"
@@ -270,151 +270,161 @@ msgstr "首选项(_P)"
 msgid "_About Kasasa"
 msgstr "关于 Kasasa(_A)"
 
-#: src/kasasa-content-container.c:195
+#: src/kasasa-content-container.c:207
 msgid "A screencast is already active"
 msgstr "录屏已经处于活动状态"
 
-#: src/kasasa-content-container.c:204
+#: src/kasasa-content-container.c:216
 msgid "Couldn't find the active monitor"
 msgstr "无法找到当前活动显示器"
 
-#: src/kasasa-content-container.c:209 src/kasasa-content-container.c:1983
+#: src/kasasa-content-container.c:221 src/kasasa-content-container.c:2102
 msgid "Couldn't display the monitor"
 msgstr "无法显示该显示器"
 
-#: src/kasasa-content-container.c:220 src/kasasa-content-container.c:654
-#: src/kasasa-content-container.c:684 src/kasasa-content-container.c:698
-#: src/kasasa-content-container.c:711 src/kasasa-content-container.c:2296
+#: src/kasasa-content-container.c:232 src/kasasa-content-container.c:699
+#: src/kasasa-content-container.c:729 src/kasasa-content-container.c:743
+#: src/kasasa-content-container.c:756 src/kasasa-content-container.c:2423
 #, c-format
 msgid "Error: %s"
 msgstr "错误：%s"
 
-#: src/kasasa-content-container.c:222 src/kasasa-content-container.c:656
-#: src/kasasa-content-container.c:668 src/kasasa-content-container.c:2298
+#: src/kasasa-content-container.c:234 src/kasasa-content-container.c:701
+#: src/kasasa-content-container.c:713 src/kasasa-content-container.c:2425
 msgid "Copy"
 msgstr "复制"
 
-#: src/kasasa-content-container.c:234
+#: src/kasasa-content-container.c:246
 msgid "GPU screencast unavailable. Switched to CPU."
 msgstr "GPU 录屏不可用，已切换到 CPU。"
 
-#: src/kasasa-content-container.c:245
+#: src/kasasa-content-container.c:257
 msgid ""
 "Hardware-accelerated preview unavailable. Switched to compatibility mode."
 msgstr "硬件加速预览不可用，已切换到兼容模式。"
 
-#: src/kasasa-content-container.c:269
+#: src/kasasa-content-container.c:281
 msgid "Screenshot scheduled"
 msgstr "已安排截图"
 
-#: src/kasasa-content-container.c:270
+#: src/kasasa-content-container.c:282 src/kasasa-content-container.c:312
 #, c-format
 msgid "Screenshot in %u second"
 msgid_plural "Screenshot in %u seconds"
 msgstr[0] "将在 %u 秒后截图"
 
-#: src/kasasa-content-container.c:276 src/kasasa-content-container.c:1752
+#: src/kasasa-content-container.c:288 src/kasasa-content-container.c:320
+#: src/kasasa-content-container.c:1871
 msgid "Cancel"
 msgstr "取消"
 
-#: src/kasasa-content-container.c:665 src/kasasa-content-container.c:697
-#: src/kasasa-content-container.c:1232 src/kasasa-content-container.c:1815
+#: src/kasasa-content-container.c:710 src/kasasa-content-container.c:742
+#: src/kasasa-content-container.c:1351 src/kasasa-content-container.c:1934
 msgid "Couldn't load the screenshot"
 msgstr "无法加载截图"
 
-#: src/kasasa-content-container.c:683
+#: src/kasasa-content-container.c:728
 msgid "Current content is not a screenshot"
 msgstr "当前内容不是截图"
 
-#: src/kasasa-content-container.c:776 src/kasasa-hyprland-capture.c:287
+#: src/kasasa-content-container.c:847 src/kasasa-hyprland-capture.c:294
+#: src/kasasa-hyprland-capture.c:459
 msgid "Couldn't capture the window"
 msgstr "无法截取窗口"
 
-#: src/kasasa-content-container.c:780 src/kasasa-content-container.c:1262
-#: src/kasasa-content-container.c:1841
+#: src/kasasa-content-container.c:851 src/kasasa-content-container.c:1381
+#: src/kasasa-content-container.c:1960
 msgid "Screenshot failed"
 msgstr "截图失败"
 
-#: src/kasasa-content-container.c:852 src/kasasa-content-container.c:856
+#: src/kasasa-content-container.c:935
+msgid "Capturing window…"
+msgstr "正在截取窗口…"
+
+#: src/kasasa-content-container.c:966 src/kasasa-content-container.c:970
 msgid "Invalid Hyprland window address"
 msgstr "窗口地址无效"
 
-#: src/kasasa-content-container.c:875 src/kasasa-content-container.c:1618
-#: src/kasasa-content-container.c:1624 src/kasasa-content-container.c:2034
+#: src/kasasa-content-container.c:989 src/kasasa-content-container.c:1737
+#: src/kasasa-content-container.c:1743 src/kasasa-content-container.c:2153
 msgid "Couldn't display the screencast"
 msgstr "无法显示录屏"
 
-#: src/kasasa-content-container.c:931
+#: src/kasasa-content-container.c:1050
 msgid "Select a window to preview live"
 msgstr "选择要实时预览的窗口"
 
-#: src/kasasa-content-container.c:932
+#: src/kasasa-content-container.c:1051
 msgid "Select a window to capture"
 msgstr "选择要截图的窗口"
 
-#: src/kasasa-content-container.c:956
+#: src/kasasa-content-container.c:1075
 msgid "Maximum number of items reached"
 msgstr "已达到最大项目数"
 
-#: src/kasasa-content-container.c:966
+#: src/kasasa-content-container.c:1085
 msgid "Live window preview requires Hyprland Wayland"
 msgstr "窗口实时预览需要 Hyprland Wayland"
 
-#: src/kasasa-content-container.c:975
+#: src/kasasa-content-container.c:1094
 msgid "Window capture requires Hyprland Wayland"
 msgstr "窗口截图需要 Hyprland Wayland"
 
-#: src/kasasa-content-container.c:981
+#: src/kasasa-content-container.c:1100
 msgid "Finish the current screencast before starting another one."
 msgstr "请先结束当前录屏，再开始新的录屏。"
 
-#: src/kasasa-content-container.c:1011 src/kasasa-content-container.c:1017
+#: src/kasasa-content-container.c:1130 src/kasasa-content-container.c:1136
 msgid "Couldn't open the window selector"
 msgstr "无法打开窗口选择器"
 
 #. translators: reason which the screenshot failed
 #. translators: reason which the screencast failed
-#: src/kasasa-content-container.c:1225 src/kasasa-content-container.c:1232
-#: src/kasasa-content-container.c:1243 src/kasasa-content-container.c:1331
-#: src/kasasa-content-container.c:1814 src/kasasa-content-container.c:1825
-#: src/kasasa-content-container.c:2031
+#: src/kasasa-content-container.c:1344 src/kasasa-content-container.c:1351
+#: src/kasasa-content-container.c:1362 src/kasasa-content-container.c:1450
+#: src/kasasa-content-container.c:1933 src/kasasa-content-container.c:1944
+#: src/kasasa-content-container.c:2150
 msgid "Reason: "
 msgstr "原因："
 
-#: src/kasasa-content-container.c:1336 src/kasasa-content-container.c:1978
-#: src/kasasa-content-container.c:2052
+#: src/kasasa-content-container.c:1455 src/kasasa-content-container.c:2097
+#: src/kasasa-content-container.c:2171
 msgid "Screencast failed"
 msgstr "录屏失败"
 
-#: src/kasasa-content-container.c:1419
+#: src/kasasa-content-container.c:1538
 msgid "The screencast service did not respond"
 msgstr "录屏服务没有响应"
 
-#: src/kasasa-content-container.c:1502 src/kasasa-content-container.c:1508
+#: src/kasasa-content-container.c:1621 src/kasasa-content-container.c:1627
 msgid "Couldn't start the screencast"
 msgstr "无法启动录屏"
 
-#: src/kasasa-content-container.c:1524 src/kasasa-content-container.c:1530
+#: src/kasasa-content-container.c:1643 src/kasasa-content-container.c:1649
 msgid "The screencast did not provide a video stream"
 msgstr "录屏服务未提供视频流"
 
-#: src/kasasa-content-container.c:1546 src/kasasa-content-container.c:1552
+#: src/kasasa-content-container.c:1665 src/kasasa-content-container.c:1671
 msgid "The screencast provided invalid stream information"
 msgstr "录屏服务提供了无效的视频流信息"
 
-#: src/kasasa-content-container.c:1576 src/kasasa-content-container.c:1582
+#: src/kasasa-content-container.c:1695 src/kasasa-content-container.c:1701
 msgid "Couldn't connect to the screencast service"
 msgstr "无法连接到录屏服务"
 
-#: src/kasasa-content-container.c:1694 src/kasasa-content-container.c:1700
+#: src/kasasa-content-container.c:1813 src/kasasa-content-container.c:1819
 msgid "Couldn't create the screencast"
 msgstr "无法创建录屏"
 
-#: src/kasasa-content-container.c:1748
+#: src/kasasa-content-container.c:1867
 msgid "Waiting for screen selection…"
 msgstr "正在等待选择屏幕或窗口…"
 
-#: src/kasasa-content-container.c:2310
+#: src/kasasa-content-container.c:2197
+msgid "Cancelling capture…"
+msgstr "正在取消截取…"
+
+#: src/kasasa-content-container.c:2437
 msgid "Copied to the clipboard"
 msgstr "已复制到剪贴板"
 
@@ -454,27 +464,27 @@ msgstr "重新截图"
 msgid "Copy screenshot"
 msgstr "复制截图"
 
-#: src/kasasa-hyprland-capture.c:81 src/kasasa-hyprland-capture.c:90
+#: src/kasasa-hyprland-capture.c:88 src/kasasa-hyprland-capture.c:97
 msgid "The compositor provided an invalid window frame"
 msgstr "合成器提供了无效的窗口帧"
 
-#: src/kasasa-hyprland-capture.c:113
+#: src/kasasa-hyprland-capture.c:120
 msgid "The window frame is too large"
 msgstr "窗口帧过大"
 
-#: src/kasasa-hyprland-capture.c:121
+#: src/kasasa-hyprland-capture.c:128
 msgid "Couldn't allocate a window screenshot"
 msgstr "无法为窗口截图分配内存"
 
-#: src/kasasa-hyprland-capture.c:206
+#: src/kasasa-hyprland-capture.c:213
 msgid "The compositor provided an unsupported window frame format"
 msgstr "合成器提供了不受支持的窗口帧格式"
 
-#: src/kasasa-hyprland-capture.c:320
+#: src/kasasa-hyprland-capture.c:325
 msgid "Hyprland window capture requires Wayland and hyprctl"
 msgstr "Hyprland 窗口捕获需要 Wayland 和 hyprctl"
 
-#: src/kasasa-hyprland-capture.c:371
+#: src/kasasa-hyprland-capture.c:407
 msgid "Couldn't save the window screenshot"
 msgstr "无法保存窗口截图"
 
@@ -791,76 +801,88 @@ msgstr "窗口选择条件为空"
 msgid "Window specifier is missing a value after “%s:”"
 msgstr "窗口选择条件在“%s:”之后缺少值"
 
-#: src/kasasa-window-query.c:279
+#: src/kasasa-window-query.c:308
 msgid "Unexpected hyprctl clients JSON"
 msgstr "hyprctl clients 返回了意外的 JSON"
 
-#: src/kasasa-window-query.c:327
+#: src/kasasa-window-query.c:358
 msgid "Unexpected hyprctl activewindow JSON"
 msgstr "hyprctl activewindow 返回了意外的 JSON"
 
-#: src/kasasa-window-query.c:363
+#: src/kasasa-window-query.c:394
 msgid "Unexpected hyprctl monitors JSON"
 msgstr "hyprctl monitors 返回了意外的 JSON"
 
-#: src/kasasa-window-query.c:475
+#: src/kasasa-window-query.c:506
 msgid "Hyprland window listing requires hyprctl"
 msgstr "列出 Hyprland 窗口需要 hyprctl"
 
-#: src/kasasa-window-query.c:500
+#: src/kasasa-window-query.c:531
 msgid "Hyprland active window selection requires hyprctl"
 msgstr "选择 Hyprland 活动窗口需要 hyprctl"
 
-#: src/kasasa-window-query.c:525
+#: src/kasasa-window-query.c:556
 msgid "Hyprland monitor listing requires hyprctl"
 msgstr "列出 Hyprland 显示器需要 hyprctl"
 
-#: src/kasasa-window-query.c:553
+#: src/kasasa-window-query.c:584
 msgid "Monitor specifier is empty"
 msgstr "显示器选择条件为空"
 
-#: src/kasasa-window-query.c:570
+#: src/kasasa-window-query.c:601
 msgid "No active monitor"
 msgstr "没有活动显示器"
 
-#: src/kasasa-window-query.c:585
+#: src/kasasa-window-query.c:616
 #, c-format
 msgid "No monitor named “%s”"
 msgstr "没有名为“%s”的显示器"
 
-#: src/kasasa-window-query.c:673
+#: src/kasasa-window-query.c:704
 msgid "No window matched the specifier"
 msgstr "没有窗口符合选择条件"
 
-#: src/kasasa-window-query.c:684
+#: src/kasasa-window-query.c:715
 msgid "Multiple windows matched the specifier"
 msgstr "有多个窗口符合选择条件"
 
-#: src/kasasa-window-query.c:717 src/kasasa-window-query.c:768
+#: src/kasasa-window-query.c:748 src/kasasa-window-query.c:799
 msgid "No active window"
 msgstr "没有活动窗口"
 
-#: src/kasasa-window-query.c:881
+#: src/kasasa-window-query.c:912
 msgid "Candidates:"
 msgstr "候选项："
 
-#: src/kasasa-window-picker.c:125
+#: src/kasasa-window-picker.c:105
+msgid "No capturable windows"
+msgstr "没有可截取的窗口"
+
+#: src/kasasa-window-picker.c:106
+msgid "No matching windows"
+msgstr "没有匹配的窗口"
+
+#: src/kasasa-window-picker.c:224
 msgid "Untitled window"
 msgstr "无标题窗口"
 
-#: src/kasasa-window-picker.c:129
+#: src/kasasa-window-picker.c:228
 msgid "Unknown app"
 msgstr "未知应用"
 
-#: src/kasasa-window-picker.c:131
+#: src/kasasa-window-picker.c:230
 msgid "Unknown workspace"
 msgstr "未知工作区"
 
-#: src/kasasa-window-picker.c:193
-msgid "No capturable Hyprland windows found"
-msgstr "未找到可捕获的 Hyprland 窗口"
+#: src/kasasa-window-picker.c:311
+msgid "Couldn't refresh windows"
+msgstr "无法刷新窗口"
 
-#: src/kasasa-window-picker.c:222
+#: src/kasasa-window-picker.c:373
+msgid "Refresh windows"
+msgstr "刷新窗口"
+
+#: src/kasasa-window-picker.c:380
 msgid "Search windows"
 msgstr "搜索窗口"
 

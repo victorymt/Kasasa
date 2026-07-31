@@ -93,8 +93,12 @@ typedef struct
                               gpointer                    user_data,
                               GDestroyNotify              destroy,
                               GError                    **error);
-  gchar *(*capture_screenshot) (const KasasaWindowClient *client,
-                                GError                  **error);
+  void (*capture_screenshot_async) (const KasasaWindowClient *client,
+                                    GCancellable             *cancellable,
+                                    GAsyncReadyCallback       callback,
+                                    gpointer                  user_data);
+  gchar *(*capture_screenshot_finish) (GAsyncResult *result,
+                                       GError      **error);
   gboolean (*window_handle_from_address) (const gchar *address,
                                           guint32     *handle,
                                           GError     **error);

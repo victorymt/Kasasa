@@ -64,7 +64,9 @@ struct _KasasaContentContainer
   GSettings               *settings;
   GCancellable            *portal_cancellable;
   GCancellable            *screencast_cancellable;
+  GCancellable            *native_capture_cancellable;
   AdwToast                *screencast_request_toast;
+  AdwToast                *delayed_screenshot_toast;
   KasasaSource             delayed_screenshot_source;
   KasasaWindowClient      *delayed_screenshot_client;
   KasasaSource             screencast_create_timeout_source;
@@ -75,6 +77,7 @@ struct _KasasaContentContainer
   gboolean                 screencast_request_pending;
   gboolean                 screencast_first_capture;
   gboolean                 native_capture_request_pending;
+  gboolean                 delayed_screenshot_pending;
   KasasaScreenshotPortalOps  screenshot_portal_ops;
   KasasaScreencastPortalOps  screencast_portal_ops;
   KasasaNativeCaptureOps     native_capture_ops;
@@ -112,6 +115,14 @@ typedef struct
   KasasaNativeCaptureKind kind;
 } KasasaNativeCaptureRequest;
 
+typedef struct
+{
+  GWeakRef container;
+  KasasaNativeCaptureKind kind;
+  gchar *(*finish) (GAsyncResult *result,
+                    GError      **error);
+} KasasaNativeScreenshotRequest;
+
 static const KasasaScreenshotPortalOps default_screenshot_portal_ops = {
   .take_screenshot = xdp_portal_take_screenshot,
   .take_screenshot_finish = xdp_portal_take_screenshot_finish,
@@ -128,7 +139,8 @@ static const KasasaNativeCaptureOps default_native_capture_ops = {
   .screenshot_available = kasasa_hyprland_capture_available,
   .screencast_available = kasasa_hyprland_stream_available,
   .present_picker = kasasa_window_picker_present,
-  .capture_screenshot = kasasa_hyprland_capture_screenshot,
+  .capture_screenshot_async = kasasa_hyprland_capture_screenshot_async,
+  .capture_screenshot_finish = kasasa_hyprland_capture_screenshot_finish,
   .window_handle_from_address = kasasa_hyprland_stream_handle_from_address,
 };
 
@@ -278,6 +290,38 @@ send_delayed_screenshot_notification (guint interval)
   g_application_send_notification (application,
                                    DELAYED_SCREENSHOT_NOTIFICATION_ID,
                                    notification);
+}
+
+static void
+dismiss_delayed_screenshot_toast (KasasaContentContainer *self)
+{
+  if (self->delayed_screenshot_toast == NULL)
+    return;
+
+  adw_toast_dismiss (self->delayed_screenshot_toast);
+  g_clear_object (&self->delayed_screenshot_toast);
+}
+
+static void
+show_delayed_screenshot_toast (KasasaContentContainer *self,
+                               guint                   interval)
+{
+  g_autofree gchar *title = NULL;
+
+  dismiss_delayed_screenshot_toast (self);
+  title = g_strdup_printf (ngettext ("Screenshot in %u second",
+                                     "Screenshot in %u seconds",
+                                     interval),
+                           interval);
+  self->delayed_screenshot_toast = adw_toast_new (title);
+  adw_toast_set_timeout (self->delayed_screenshot_toast, 0);
+  adw_toast_set_priority (self->delayed_screenshot_toast,
+                          ADW_TOAST_PRIORITY_HIGH);
+  adw_toast_set_button_label (self->delayed_screenshot_toast, _("Cancel"));
+  adw_toast_set_action_name (self->delayed_screenshot_toast,
+                             "app.cancel-delayed-screenshot");
+  adw_toast_overlay_add_toast (self->toast_overlay,
+                               g_object_ref (self->delayed_screenshot_toast));
 }
 
 static PortalRequestData *
@@ -621,7 +665,8 @@ kasasa_content_container_set_native_capture_ops (
                     || (ops->screenshot_available != NULL
                         && ops->screencast_available != NULL
                         && ops->present_picker != NULL
-                        && ops->capture_screenshot != NULL
+                        && ops->capture_screenshot_async != NULL
+                        && ops->capture_screenshot_finish != NULL
                         && ops->window_handle_from_address != NULL));
 
   self->native_capture_ops = ops != NULL
@@ -751,6 +796,26 @@ native_capture_request_free (KasasaNativeCaptureRequest *request)
   g_free (request);
 }
 
+static KasasaNativeScreenshotRequest *
+native_screenshot_request_new (KasasaContentContainer *self,
+                               KasasaNativeCaptureKind kind)
+{
+  KasasaNativeScreenshotRequest *request =
+    g_new0 (KasasaNativeScreenshotRequest, 1);
+
+  g_weak_ref_init (&request->container, self);
+  request->kind = kind;
+  request->finish = self->native_capture_ops.capture_screenshot_finish;
+  return request;
+}
+
+static void
+native_screenshot_request_free (KasasaNativeScreenshotRequest *request)
+{
+  g_weak_ref_clear (&request->container);
+  g_free (request);
+}
+
 static void
 finish_native_capture_interaction (KasasaContentContainer *self,
                                    KasasaNativeCaptureKind kind)
@@ -762,6 +827,12 @@ finish_native_capture_interaction (KasasaContentContainer *self,
     kasasa_window_block_miniaturization (window, FALSE);
   if (kind == KASASA_NATIVE_CAPTURE_RETAKE_SCREENSHOT)
     kasasa_content_container_carousel_set_interactive (self, TRUE);
+  if (kind == KASASA_NATIVE_CAPTURE_DELAYED_SCREENSHOT)
+    {
+      self->delayed_screenshot_pending = FALSE;
+      withdraw_delayed_screenshot_notification ();
+      dismiss_delayed_screenshot_toast (self);
+    }
   kasasa_content_container_update_toolbar_sensibility (self);
 }
 
@@ -787,31 +858,70 @@ fail_first_screenshot (KasasaWindow *window,
 }
 
 static void
-capture_selected_screenshot (KasasaContentContainer *self,
-                             const KasasaWindowClient *client,
-                             KasasaNativeCaptureKind kind)
+on_native_screenshot_captured (GObject      *source_object,
+                               GAsyncResult *result,
+                               gpointer      user_data)
 {
+  KasasaNativeScreenshotRequest *request = user_data;
+  g_autoptr (KasasaContentContainer) self = NULL;
   g_autoptr (GError) error = NULL;
   g_autofree gchar *uri = NULL;
-  KasasaWindow *window = get_root_window (self);
+  KasasaWindow *window;
 
-  if (window == NULL)
-    return;
-
-  uri = self->native_capture_ops.capture_screenshot (client, &error);
-  if (kind == KASASA_NATIVE_CAPTURE_FIRST_SCREENSHOT)
+  uri = request->finish (result, &error);
+  self = g_weak_ref_get (&request->container);
+  if (self == NULL)
     {
+      native_screenshot_request_free (request);
+      return;
+    }
+
+  g_clear_object (&self->native_capture_cancellable);
+  window = get_root_window (self);
+  if (window == NULL)
+    {
+      finish_native_capture_interaction (self, request->kind);
+      native_screenshot_request_free (request);
+      return;
+    }
+
+  if (request->kind == KASASA_NATIVE_CAPTURE_FIRST_SCREENSHOT)
+    {
+      finish_native_capture_interaction (self, request->kind);
       if (uri == NULL)
         fail_first_screenshot (window, error);
       else
         kasasa_content_container_load_first_screenshot_uri (self, uri);
-      return;
+    }
+  else
+    {
+      handle_taken_screenshot (
+        self,
+        uri,
+        error,
+        request->kind == KASASA_NATIVE_CAPTURE_RETAKE_SCREENSHOT);
+      finish_native_capture_interaction (self, request->kind);
     }
 
-  handle_taken_screenshot (self,
-                           uri,
-                           error,
-                           kind == KASASA_NATIVE_CAPTURE_RETAKE_SCREENSHOT);
+  native_screenshot_request_free (request);
+}
+
+static void
+capture_selected_screenshot (KasasaContentContainer  *self,
+                             const KasasaWindowClient *client,
+                             KasasaNativeCaptureKind   kind)
+{
+  KasasaNativeScreenshotRequest *request;
+
+  g_clear_object (&self->native_capture_cancellable);
+  self->native_capture_cancellable = g_cancellable_new ();
+  request = native_screenshot_request_new (self, kind);
+
+  self->native_capture_ops.capture_screenshot_async (
+    client,
+    self->native_capture_cancellable,
+    on_native_screenshot_captured,
+    request);
 }
 
 static void
@@ -820,14 +930,18 @@ capture_delayed_screenshot_cb (gpointer user_data)
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
 
   withdraw_delayed_screenshot_notification ();
+  if (self->delayed_screenshot_toast != NULL)
+    adw_toast_set_title (self->delayed_screenshot_toast,
+                         _("Capturing window…"));
   if (self->delayed_screenshot_client != NULL)
     capture_selected_screenshot (self,
                                  self->delayed_screenshot_client,
-                                 KASASA_NATIVE_CAPTURE_ADD_SCREENSHOT);
+                                 KASASA_NATIVE_CAPTURE_DELAYED_SCREENSHOT);
+  else
+    finish_native_capture_interaction (
+      self, KASASA_NATIVE_CAPTURE_DELAYED_SCREENSHOT);
   g_clear_pointer (&self->delayed_screenshot_client,
                    kasasa_window_client_free);
-  finish_native_capture_interaction (
-    self, KASASA_NATIVE_CAPTURE_DELAYED_SCREENSHOT);
 }
 
 static void
@@ -889,9 +1003,11 @@ on_native_window_selected (const KasasaWindowClient *client,
 
   window = get_root_window (self);
   if (window == NULL)
-    return;
+    {
+      finish_native_capture_interaction (self, request->kind);
+      return;
+    }
 
-  self->native_capture_request_pending = FALSE;
   if (client == NULL)
     {
       finish_native_capture_interaction (self, request->kind);
@@ -908,20 +1024,23 @@ on_native_window_selected (const KasasaWindowClient *client,
       g_clear_pointer (&self->delayed_screenshot_client,
                        kasasa_window_client_free);
       self->delayed_screenshot_client = kasasa_window_client_copy (client);
+      self->delayed_screenshot_pending = TRUE;
       kasasa_source_set_timeout_seconds_once (&self->delayed_screenshot_source,
                                               interval,
                                               capture_delayed_screenshot_cb,
                                               self);
       send_delayed_screenshot_notification (interval);
+      show_delayed_screenshot_toast (self, interval);
       return;
     }
 
   if (native_capture_is_screencast (request->kind))
-    capture_selected_screencast (self, client, request->kind);
+    {
+      capture_selected_screencast (self, client, request->kind);
+      finish_native_capture_interaction (self, request->kind);
+    }
   else
     capture_selected_screenshot (self, client, request->kind);
-
-  finish_native_capture_interaction (self, request->kind);
 }
 
 static const gchar *
@@ -945,7 +1064,7 @@ begin_native_capture_request (KasasaContentContainer *self,
   window = get_root_window (self);
   if (window == NULL
       || self->native_capture_request_pending
-      || self->delayed_screenshot_source.id != 0)
+      || self->delayed_screenshot_pending)
     return;
 
   if (kind != KASASA_NATIVE_CAPTURE_FIRST_SCREENSHOT
@@ -2064,13 +2183,21 @@ kasasa_content_container_cancel_delayed_screenshot (KasasaContentContainer *self
 {
   g_return_val_if_fail (KASASA_IS_CONTENT_CONTAINER (self), FALSE);
 
-  if (self->delayed_screenshot_source.id == 0)
+  if (!self->delayed_screenshot_pending)
     return FALSE;
 
   kasasa_source_clear (&self->delayed_screenshot_source);
-  withdraw_delayed_screenshot_notification ();
   g_clear_pointer (&self->delayed_screenshot_client,
                    kasasa_window_client_free);
+  if (self->native_capture_cancellable != NULL)
+    {
+      withdraw_delayed_screenshot_notification ();
+      if (self->delayed_screenshot_toast != NULL)
+        adw_toast_set_title (self->delayed_screenshot_toast,
+                             _("Cancelling capture…"));
+      g_cancellable_cancel (self->native_capture_cancellable);
+      return TRUE;
+    }
   finish_native_capture_interaction (
     self, KASASA_NATIVE_CAPTURE_DELAYED_SCREENSHOT);
   return TRUE;
@@ -2346,11 +2473,16 @@ kasasa_content_container_dispose (GObject *object)
   kasasa_source_clear (&self->delayed_screenshot_source);
   g_clear_pointer (&self->delayed_screenshot_client,
                    kasasa_window_client_free);
+  self->delayed_screenshot_pending = FALSE;
+  dismiss_delayed_screenshot_toast (self);
   kasasa_source_clear (&self->screencast_create_timeout_source);
   self->screencast_request_pending = FALSE;
   self->screencast_first_capture = FALSE;
   self->native_capture_request_pending = FALSE;
   dismiss_screencast_request_toast (self);
+  if (self->native_capture_cancellable != NULL)
+    g_cancellable_cancel (self->native_capture_cancellable);
+  g_clear_object (&self->native_capture_cancellable);
   if (self->screencast_cancellable != NULL)
     g_cancellable_cancel (self->screencast_cancellable);
   g_clear_object (&self->screencast_cancellable);
@@ -2421,7 +2553,9 @@ kasasa_content_container_init (KasasaContentContainer *self)
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
   self->portal_cancellable = g_cancellable_new ();
   self->screencast_cancellable = NULL;
+  self->native_capture_cancellable = NULL;
   self->screencast_request_toast = NULL;
+  self->delayed_screenshot_toast = NULL;
   self->delayed_screenshot_source.id = 0;
   self->delayed_screenshot_client = NULL;
   self->screencast_create_timeout_source.id = 0;
@@ -2435,6 +2569,7 @@ kasasa_content_container_init (KasasaContentContainer *self)
   self->screencast_request_pending = FALSE;
   self->screencast_first_capture = FALSE;
   self->native_capture_request_pending = FALSE;
+  self->delayed_screenshot_pending = FALSE;
 
   // Signals
   g_signal_connect (self->carousel,

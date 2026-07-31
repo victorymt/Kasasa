@@ -33,6 +33,7 @@ static const gchar *clients_json =
   "    \"mapped\": true,"
   "    \"floating\": false,"
   "    \"monitor\": 0,"
+  "    \"focusHistoryID\": 1,"
   "    \"workspace\": {\"id\": 1, \"name\": \"1\"},"
   "    \"at\": [7, 39],"
   "    \"size\": [1906, 1154]"
@@ -44,6 +45,7 @@ static const gchar *clients_json =
   "    \"mapped\": true,"
   "    \"floating\": false,"
   "    \"monitor\": 0,"
+  "    \"focusHistoryID\": 0,"
   "    \"workspace\": {\"id\": 2, \"name\": \"2\"},"
   "    \"at\": [100, 100],"
   "    \"size\": [800, 600]"
@@ -153,6 +155,22 @@ test_parse_and_resolve (void)
   g_assert_nonnull (clients);
   /* unmapped filtered out */
   g_assert_cmpuint (clients->len, ==, 3);
+  g_assert_cmpstr (((KasasaWindowClient *) g_ptr_array_index (clients, 0))
+                     ->address,
+                   ==,
+                   "0xbbb");
+  g_assert_cmpint (((KasasaWindowClient *) g_ptr_array_index (clients, 0))
+                     ->focus_history_id,
+                   ==,
+                   0);
+  g_assert_cmpstr (((KasasaWindowClient *) g_ptr_array_index (clients, 1))
+                     ->address,
+                   ==,
+                   "0xaaa");
+  g_assert_cmpint (((KasasaWindowClient *) g_ptr_array_index (clients, 1))
+                     ->focus_history_id,
+                   ==,
+                   1);
 
   active = g_ptr_array_index (clients, 0);
 

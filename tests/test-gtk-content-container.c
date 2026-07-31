@@ -78,6 +78,8 @@ static guint fake_screencast_start_calls;
 static FakePortalResult fake_native_picker_result;
 static const gchar *fake_native_screenshot_uri;
 static gboolean fake_native_capture_error;
+static gboolean fake_native_capture_pending;
+static GTask *fake_pending_native_capture_task;
 static guint fake_native_picker_calls;
 static guint fake_native_capture_calls;
 static guint switch_resize_calls;
@@ -240,21 +242,40 @@ fake_native_present_picker (GtkWindow                  *parent,
   return TRUE;
 }
 
-static gchar *
-fake_native_capture_screenshot (const KasasaWindowClient *client,
-                                GError                  **error)
+static void
+fake_native_capture_screenshot_async (const KasasaWindowClient *client,
+                                      GCancellable             *cancellable,
+                                      GAsyncReadyCallback       callback,
+                                      gpointer                  user_data)
 {
+  GTask *task = g_task_new (NULL, cancellable, callback, user_data);
+
   fake_native_capture_calls++;
-  if (fake_native_capture_error)
+  if (fake_native_capture_pending)
     {
-      g_set_error_literal (error,
-                           G_IO_ERROR,
-                           G_IO_ERROR_FAILED,
-                           "native capture test error");
-      return NULL;
+      g_assert_null (fake_pending_native_capture_task);
+      fake_pending_native_capture_task = task;
+      return;
     }
 
-  return g_strdup (fake_native_screenshot_uri);
+  if (fake_native_capture_error)
+    g_task_return_new_error (task,
+                             G_IO_ERROR,
+                             G_IO_ERROR_FAILED,
+                             "native capture test error");
+  else
+    g_task_return_pointer (task,
+                           g_strdup (fake_native_screenshot_uri),
+                           g_free);
+
+  g_object_unref (task);
+}
+
+static gchar *
+fake_native_capture_screenshot_finish (GAsyncResult *result,
+                                       GError      **error)
+{
+  return g_task_propagate_pointer (G_TASK (result), error);
 }
 
 static gboolean
@@ -270,7 +291,8 @@ static const KasasaNativeCaptureOps fake_native_capture_ops = {
   .screenshot_available = fake_native_available,
   .screencast_available = fake_native_available,
   .present_picker = fake_native_present_picker,
-  .capture_screenshot = fake_native_capture_screenshot,
+  .capture_screenshot_async = fake_native_capture_screenshot_async,
+  .capture_screenshot_finish = fake_native_capture_screenshot_finish,
   .window_handle_from_address = fake_native_window_handle,
 };
 
@@ -512,6 +534,8 @@ fixture_setup (Fixture *fixture,
   fake_native_picker_result = FAKE_PORTAL_SUCCESS;
   fake_native_screenshot_uri = fixture->image_uri;
   fake_native_capture_error = FALSE;
+  fake_native_capture_pending = FALSE;
+  g_assert_null (fake_pending_native_capture_task);
   fake_native_picker_calls = 0;
   fake_native_capture_calls = 0;
   kasasa_content_container_set_screenshot_portal_ops (fixture->container,
@@ -543,6 +567,18 @@ fixture_teardown (Fixture *fixture,
                                G_IO_ERROR,
                                G_IO_ERROR_CANCELLED,
                                "screencast test cleanup");
+      g_object_unref (task);
+      dispatch_pending_sources ();
+    }
+
+  if (fake_pending_native_capture_task != NULL)
+    {
+      GTask *task = g_steal_pointer (&fake_pending_native_capture_task);
+
+      g_task_return_new_error (task,
+                               G_IO_ERROR,
+                               G_IO_ERROR_CANCELLED,
+                               "native capture test cleanup");
       g_object_unref (task);
       dispatch_pending_sources ();
     }
@@ -905,6 +941,34 @@ test_native_retake_success_then_cancel (Fixture *fixture,
 }
 
 static void
+test_native_capture_pending_blocks_second_request (Fixture *fixture,
+                                                   gconstpointer user_data)
+{
+  GTask *task;
+
+  fake_native_capture_pending = TRUE;
+  g_signal_emit_by_name (fixture->add_button, "clicked");
+  dispatch_pending_sources ();
+
+  g_assert_nonnull (fake_pending_native_capture_task);
+  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_cmpuint (fake_native_picker_calls, ==, 1);
+
+  g_signal_emit_by_name (fixture->add_button, "clicked");
+  dispatch_pending_sources ();
+  g_assert_cmpuint (fake_native_picker_calls, ==, 1);
+
+  fake_native_capture_pending = FALSE;
+  task = g_steal_pointer (&fake_pending_native_capture_task);
+  g_task_return_pointer (task, g_strdup (fixture->image_uri), g_free);
+  g_object_unref (task);
+  dispatch_pending_sources ();
+
+  g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 1);
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+}
+
+static void
 test_portal_callback_after_dispose (Fixture *fixture,
                                     gconstpointer user_data)
 {
@@ -950,6 +1014,50 @@ test_delayed_screenshot_cancel_restores_state (Fixture *fixture,
     fixture->container));
   g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
   g_assert_cmpuint (fake_native_capture_calls, ==, 0);
+}
+
+static void
+test_delayed_screenshot_cancel_during_capture (Fixture *fixture,
+                                               gconstpointer user_data)
+{
+  g_autoptr (GSettings) settings =
+    g_settings_new ("io.github.kelvinnovais.Kasasa");
+  gint64 deadline;
+  GTask *task;
+  GCancellable *cancellable;
+
+  g_assert_true (g_settings_set_uint (settings, "screenshot-delay", 1));
+  fake_native_capture_pending = TRUE;
+  g_signal_emit_by_name (fixture->delayed_button, "clicked");
+
+  deadline = g_get_monotonic_time () + (2 * G_TIME_SPAN_SECOND);
+  while (fake_pending_native_capture_task == NULL
+         && g_get_monotonic_time () < deadline)
+    {
+      g_main_context_iteration (NULL, FALSE);
+      g_usleep (1000);
+    }
+
+  g_assert_nonnull (fake_pending_native_capture_task);
+  g_assert_cmpuint (fake_native_capture_calls, ==, 1);
+  g_assert_false (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+
+  cancellable = g_task_get_cancellable (fake_pending_native_capture_task);
+  g_assert_nonnull (cancellable);
+  g_assert_true (kasasa_content_container_cancel_delayed_screenshot (
+    fixture->container));
+  g_assert_true (g_cancellable_is_cancelled (cancellable));
+
+  fake_native_capture_pending = FALSE;
+  task = g_steal_pointer (&fake_pending_native_capture_task);
+  g_assert_true (g_task_return_error_if_cancelled (task));
+  g_object_unref (task);
+  dispatch_pending_sources ();
+
+  g_assert_false (kasasa_content_container_cancel_delayed_screenshot (
+    fixture->container));
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 0);
 }
 
 static void
@@ -1062,12 +1170,20 @@ main (int argc, char **argv)
   g_test_add ("/gtk/content-container/native-retake-success-cancel",
               Fixture, NULL, fixture_setup,
               test_native_retake_success_then_cancel, fixture_teardown);
+  g_test_add ("/gtk/content-container/native-pending-blocks-second-request",
+              Fixture, NULL, fixture_setup,
+              test_native_capture_pending_blocks_second_request,
+              fixture_teardown);
   g_test_add ("/gtk/content-container/portal-callback-after-dispose",
               Fixture, NULL, fixture_setup,
               test_portal_callback_after_dispose, fixture_teardown);
   g_test_add ("/gtk/content-container/delayed-cancel-restores-state",
               Fixture, NULL, fixture_setup,
               test_delayed_screenshot_cancel_restores_state,
+              fixture_teardown);
+  g_test_add ("/gtk/content-container/delayed-cancel-during-capture",
+              Fixture, NULL, fixture_setup,
+              test_delayed_screenshot_cancel_during_capture,
               fixture_teardown);
   g_test_add ("/gtk/content-container/screencast-timeout-late-retry",
               Fixture, NULL, fixture_setup,

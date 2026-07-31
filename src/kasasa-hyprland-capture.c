@@ -42,6 +42,13 @@ typedef struct
   GError *error;
 } CaptureFrame;
 
+typedef struct
+{
+  guint8 *pixels;
+  gint width;
+  gint height;
+} CapturedImage;
+
 static void
 set_capture_error_literal (GError      **error,
                            const gchar  *message)
@@ -294,23 +301,21 @@ kasasa_hyprland_capture_available (void)
   return kasasa_hyprland_stream_available ();
 }
 
-gchar *
-kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
-                                    GError                  **error)
+static void
+captured_image_free (CapturedImage *image)
+{
+  g_free (image->pixels);
+  g_free (image);
+}
+
+static CapturedImage *
+capture_window_frame (const KasasaWindowClient *client,
+                      GError                  **error)
 {
   CaptureFrame capture = { 0 };
-  KasasaHyprlandStream *stream;
-  g_autoptr (GBytes) bytes = NULL;
-  g_autoptr (GdkTexture) texture = NULL;
-  g_autofree gchar *path = NULL;
-  gchar *uri = NULL;
+  KasasaHyprlandStream *stream = NULL;
+  CapturedImage *image = NULL;
   guint32 handle = 0;
-  gsize stride;
-  gsize size;
-  gint fd;
-
-  g_return_val_if_fail (client != NULL, NULL);
-  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
   if (!kasasa_hyprland_capture_available ())
     {
@@ -344,6 +349,7 @@ kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
   g_mutex_unlock (&capture.mutex);
 
   kasasa_hyprland_stream_stop (stream);
+  stream = NULL;
 
   if (capture.error != NULL)
     {
@@ -351,11 +357,41 @@ kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
       goto out;
     }
 
-  stride = (gsize) capture.width * 4;
-  size = stride * (gsize) capture.height;
-  bytes = g_bytes_new_take (g_steal_pointer (&capture.pixels), size);
-  texture = gdk_memory_texture_new (capture.width,
-                                    capture.height,
+  image = g_new0 (CapturedImage, 1);
+  image->pixels = g_steal_pointer (&capture.pixels);
+  image->width = capture.width;
+  image->height = capture.height;
+
+out:
+  if (stream != NULL)
+    kasasa_hyprland_stream_stop (stream);
+  g_free (capture.pixels);
+  g_clear_error (&capture.error);
+  g_cond_clear (&capture.cond);
+  g_mutex_clear (&capture.mutex);
+  return image;
+}
+
+static gchar *
+save_captured_image (CapturedImage *image,
+                     GError       **error)
+{
+  g_autoptr (GBytes) bytes = NULL;
+  g_autoptr (GdkTexture) texture = NULL;
+  g_autofree gchar *path = NULL;
+  gchar *uri = NULL;
+  gsize stride;
+  gsize size;
+  gint fd;
+
+  g_return_val_if_fail (image != NULL, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  stride = (gsize) image->width * 4;
+  size = stride * (gsize) image->height;
+  bytes = g_bytes_new_take (g_steal_pointer (&image->pixels), size);
+  texture = gdk_memory_texture_new (image->width,
+                                    image->height,
                                     GDK_MEMORY_R8G8B8A8_PREMULTIPLIED,
                                     bytes,
                                     stride);
@@ -377,9 +413,101 @@ kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
     g_unlink (path);
 
 out:
-  g_free (capture.pixels);
-  g_clear_error (&capture.error);
-  g_cond_clear (&capture.cond);
-  g_mutex_clear (&capture.mutex);
+  return uri;
+}
+
+gchar *
+kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
+                                    GError                  **error)
+{
+  g_autoptr (GError) local_error = NULL;
+  CapturedImage *image;
+  gchar *uri;
+
+  g_return_val_if_fail (client != NULL, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  image = capture_window_frame (client, &local_error);
+  if (image == NULL)
+    {
+      g_propagate_error (error, g_steal_pointer (&local_error));
+      return NULL;
+    }
+
+  uri = save_captured_image (image, error);
+  captured_image_free (image);
+  return uri;
+}
+
+static void
+capture_screenshot_thread (GTask        *task,
+                           gpointer      source_object,
+                           gpointer      task_data,
+                           GCancellable *cancellable)
+{
+  const KasasaWindowClient *client = task_data;
+  g_autoptr (GError) error = NULL;
+  CapturedImage *image;
+
+  if (g_task_return_error_if_cancelled (task))
+    return;
+
+  image = capture_window_frame (client, &error);
+  if (image == NULL)
+    {
+      if (error == NULL)
+        set_capture_error_literal (&error, _("Couldn't capture the window"));
+      g_task_return_error (task, g_steal_pointer (&error));
+      return;
+    }
+
+  if (g_task_return_error_if_cancelled (task))
+    {
+      captured_image_free (image);
+      return;
+    }
+
+  g_task_return_pointer (task, image, (GDestroyNotify) captured_image_free);
+}
+
+void
+kasasa_hyprland_capture_screenshot_async (const KasasaWindowClient *client,
+                                          GCancellable             *cancellable,
+                                          GAsyncReadyCallback       callback,
+                                          gpointer                  user_data)
+{
+  GTask *task;
+
+  g_return_if_fail (client != NULL);
+
+  task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, kasasa_hyprland_capture_screenshot_async);
+  g_task_set_task_data (task,
+                        kasasa_window_client_copy (client),
+                        (GDestroyNotify) kasasa_window_client_free);
+  g_task_set_return_on_cancel (task, TRUE);
+  g_task_run_in_thread (task, capture_screenshot_thread);
+  g_object_unref (task);
+}
+
+gchar *
+kasasa_hyprland_capture_screenshot_finish (GAsyncResult *result,
+                                           GError      **error)
+{
+  CapturedImage *image;
+  gchar *uri;
+
+  g_return_val_if_fail (g_task_is_valid (result, NULL), NULL);
+  g_return_val_if_fail (g_async_result_is_tagged (
+                          result,
+                          kasasa_hyprland_capture_screenshot_async),
+                        NULL);
+
+  image = g_task_propagate_pointer (G_TASK (result), error);
+  if (image == NULL)
+    return NULL;
+
+  uri = save_captured_image (image, error);
+  captured_image_free (image);
   return uri;
 }
