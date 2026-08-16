@@ -35,6 +35,20 @@ Run them in the current desktop session, or under Xvfb in a headless environment
 meson test -C build --suite gtk --print-errorlogs
 ```
 
+Before submitting lifecycle or native-capture changes, run an instrumented
+build as well:
+
+```sh
+meson setup build-sanitize --buildtype=debug -Db_sanitize=address,undefined
+meson compile -C build-sanitize
+ASAN_OPTIONS=detect_leaks=0 meson test -C build-sanitize --print-errorlogs
+valgrind --leak-check=full --errors-for-leak-kinds=definite \
+  --error-exitcode=1 build/tests/test-hyprland-capture
+```
+
+The CI workflow also verifies a staged `meson install` so packaging regressions
+are caught before release.
+
 Tests that require a real Wayland display managed by Hyprland are opt-in and are
 not run by regular CI:
 

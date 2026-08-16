@@ -27,6 +27,7 @@
 
 #include "kasasa-crop-paintable.h"
 #include "kasasa-dmabuf-paintable.h"
+#include "kasasa-frame-transform.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-screencast.h"
 
@@ -1212,6 +1213,130 @@ kasasa_screencast_test_push_shm_fallback_frame (
 }
 #endif
 
+static gboolean
+validate_hypr_stream_frame (KasasaScreencast             *self,
+                            const guint8                 *data,
+                            gint                          width,
+                            gint                          height,
+                            gint                          stride,
+                            KasasaHyprlandStreamFormat    format,
+                            const gchar                 **format_name)
+{
+  gsize row_size;
+
+  if (self == NULL || self->appsrc == NULL || data == NULL
+      || width <= 0 || height <= 0 || stride <= 0
+      || (gsize) width > G_MAXSIZE / 4)
+    return FALSE;
+
+  row_size = (gsize) width * 4;
+  if ((gsize) stride < row_size || (gsize) height > G_MAXSIZE / row_size)
+    return FALSE;
+
+  *format_name = hypr_stream_format_name (format);
+  return *format_name != NULL;
+}
+
+static void
+update_hypr_stream_caps (KasasaScreencast           *self,
+                         KasasaHyprlandStreamFormat  format,
+                         const gchar                *format_name,
+                         gint                        width,
+                         gint                        height)
+{
+  g_autoptr (GstCaps) caps = NULL;
+
+  if (self->stream_width == width
+      && self->stream_height == height
+      && self->stream_format == format)
+    return;
+
+  self->stream_width = width;
+  self->stream_height = height;
+  self->stream_format = format;
+  caps = gst_caps_new_simple ("video/x-raw",
+                              "format", G_TYPE_STRING, format_name,
+                              "width", G_TYPE_INT, width,
+                              "height", G_TYPE_INT, height,
+                              "framerate", GST_TYPE_FRACTION,
+                              (gint) self->frame_rate, 1,
+                              NULL);
+  gst_app_src_set_caps (GST_APP_SRC (self->appsrc), caps);
+  if (!configure_frame_pool (self,
+                             caps,
+                             (gsize) width * 4 * (gsize) height))
+    g_warning ("Unable to configure the Hyprland frame buffer pool");
+  queue_stream_size_update (self, width, height);
+}
+
+static GstBuffer *
+acquire_hypr_frame_buffer (KasasaScreencast *self,
+                           gsize              size)
+{
+  GstBuffer *buffer = NULL;
+
+  if (self->frame_pool != NULL
+      && gst_buffer_pool_acquire_buffer (self->frame_pool,
+                                         &buffer,
+                                         NULL) != GST_FLOW_OK)
+    buffer = NULL;
+  if (buffer == NULL)
+    buffer = gst_buffer_new_allocate (NULL, size, NULL);
+  return buffer;
+}
+
+static void
+copy_hypr_frame_pixels (guint8       *destination,
+                        const guint8 *source,
+                        gint          width,
+                        gint          height,
+                        gint          source_stride,
+                        gint          output_width,
+                        gint          output_height,
+                        gboolean      y_invert,
+                        guint32       transform)
+{
+  gsize output_stride = (gsize) output_width * 4;
+  gint x;
+  gint y;
+
+  if (transform == WL_OUTPUT_TRANSFORM_NORMAL)
+    {
+      for (y = 0; y < height; y++)
+        {
+          gint source_y = y_invert ? height - 1 - y : y;
+
+          memcpy (destination + (gsize) y * output_stride,
+                  source + (gsize) source_y * (gsize) source_stride,
+                  output_stride);
+        }
+      return;
+    }
+
+  for (y = 0; y < output_height; y++)
+    {
+      for (x = 0; x < output_width; x++)
+        {
+          gint source_x;
+          gint source_y;
+
+          kasasa_frame_transform_source_position (transform,
+                                                  width,
+                                                  height,
+                                                  x,
+                                                  y,
+                                                  &source_x,
+                                                  &source_y);
+          if (y_invert)
+            source_y = height - 1 - source_y;
+          memcpy (destination + (gsize) y * output_stride + (gsize) x * 4,
+                  source + (gsize) source_y * (gsize) source_stride
+                         + (gsize) source_x * 4,
+                  4);
+        }
+    }
+}
+
 static void
 on_hypr_stream_frame (gpointer                     user_data,
                       const guint8                *data,
@@ -1225,83 +1350,39 @@ on_hypr_stream_frame (gpointer                     user_data,
   KasasaScreencast *self = user_data;
   GstBuffer *buffer;
   GstFlowReturn ret;
-  GstFlowReturn acquire_ret;
   GstMapInfo map = GST_MAP_INFO_INIT;
-  g_autoptr (GstCaps) caps = NULL;
   const gchar *format_name;
   gsize row_size;
   gsize size;
   gint output_width;
   gint output_height;
-  gint x;
-  gint y;
 
-  if (self == NULL || self->appsrc == NULL || data == NULL
-      || width <= 0 || height <= 0 || stride <= 0
-      || (gsize) width > G_MAXSIZE / 4)
+  if (!validate_hypr_stream_frame (self,
+                                   data,
+                                   width,
+                                   height,
+                                   stride,
+                                   format,
+                                   &format_name))
     return;
 
-  row_size = (gsize) width * 4;
-  if ((gsize) stride < row_size || (gsize) height > G_MAXSIZE / row_size)
-    return;
-
-  format_name = hypr_stream_format_name (format);
-  if (format_name == NULL)
-    return;
-
-  if (transform > WL_OUTPUT_TRANSFORM_FLIPPED_270)
-    transform = WL_OUTPUT_TRANSFORM_NORMAL;
-  if (transform == WL_OUTPUT_TRANSFORM_90
-      || transform == WL_OUTPUT_TRANSFORM_270
-      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_90
-      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
-    {
-      output_width = height;
-      output_height = width;
-    }
-  else
-    {
-      output_width = width;
-      output_height = height;
-    }
-
-  if (self->stream_width != output_width
-      || self->stream_height != output_height
-      || self->stream_format != format)
-    {
-      self->stream_width = output_width;
-      self->stream_height = output_height;
-      self->stream_format = format;
-      caps = gst_caps_new_simple ("video/x-raw",
-                                  "format", G_TYPE_STRING, format_name,
-                                  "width", G_TYPE_INT, output_width,
-                                  "height", G_TYPE_INT, output_height,
-                                  "framerate", GST_TYPE_FRACTION,
-                                  (gint) self->frame_rate, 1,
-                                  NULL);
-      gst_app_src_set_caps (GST_APP_SRC (self->appsrc), caps);
-      if (!configure_frame_pool (self, caps,
-                                 (gsize) output_width * 4
-                                 * (gsize) output_height))
-        g_warning ("Unable to configure the Hyprland frame buffer pool");
-      queue_stream_size_update (self, output_width, output_height);
-    }
+  transform = kasasa_frame_transform_normalize (transform);
+  kasasa_frame_transform_dimensions (width,
+                                     height,
+                                     transform,
+                                     &output_width,
+                                     &output_height);
+  update_hypr_stream_caps (self,
+                           format,
+                           format_name,
+                           output_width,
+                           output_height);
 
   row_size = (gsize) output_width * 4;
   if ((gsize) output_height > G_MAXSIZE / row_size)
     return;
   size = row_size * (gsize) output_height;
-  buffer = NULL;
-  if (self->frame_pool != NULL)
-    {
-      acquire_ret = gst_buffer_pool_acquire_buffer (self->frame_pool,
-                                                    &buffer,
-                                                    NULL);
-      if (acquire_ret != GST_FLOW_OK)
-        buffer = NULL;
-    }
-  if (buffer == NULL)
-    buffer = gst_buffer_new_allocate (NULL, size, NULL);
+  buffer = acquire_hypr_frame_buffer (self, size);
   if (buffer == NULL || !gst_buffer_map (buffer, &map, GST_MAP_WRITE))
     {
       if (buffer != NULL)
@@ -1309,71 +1390,15 @@ on_hypr_stream_frame (gpointer                     user_data,
       return;
     }
 
-  if (transform == WL_OUTPUT_TRANSFORM_NORMAL)
-    {
-      for (y = 0; y < height; y++)
-        {
-          gint source_y = y_invert ? height - 1 - y : y;
-          memcpy (map.data + (gsize) y * row_size,
-                  data + (gsize) source_y * (gsize) stride,
-                  row_size);
-        }
-    }
-  else
-    {
-      for (y = 0; y < output_height; y++)
-        {
-          for (x = 0; x < output_width; x++)
-            {
-              gint source_x;
-              gint source_y;
-
-              switch (transform)
-                {
-                case WL_OUTPUT_TRANSFORM_90:
-                  source_x = width - 1 - y;
-                  source_y = x;
-                  break;
-                case WL_OUTPUT_TRANSFORM_180:
-                  source_x = width - 1 - x;
-                  source_y = height - 1 - y;
-                  break;
-                case WL_OUTPUT_TRANSFORM_270:
-                  source_x = y;
-                  source_y = height - 1 - x;
-                  break;
-                case WL_OUTPUT_TRANSFORM_FLIPPED:
-                  source_x = width - 1 - x;
-                  source_y = y;
-                  break;
-                case WL_OUTPUT_TRANSFORM_FLIPPED_90:
-                  source_x = y;
-                  source_y = x;
-                  break;
-                case WL_OUTPUT_TRANSFORM_FLIPPED_180:
-                  source_x = x;
-                  source_y = height - 1 - y;
-                  break;
-                case WL_OUTPUT_TRANSFORM_FLIPPED_270:
-                  source_x = width - 1 - y;
-                  source_y = height - 1 - x;
-                  break;
-                case WL_OUTPUT_TRANSFORM_NORMAL:
-                default:
-                  source_x = x;
-                  source_y = y;
-                  break;
-                }
-
-              if (y_invert)
-                source_y = height - 1 - source_y;
-              memcpy (map.data + (gsize) y * row_size + (gsize) x * 4,
-                      data + (gsize) source_y * (gsize) stride
-                           + (gsize) source_x * 4,
-                      4);
-            }
-        }
-    }
+  copy_hypr_frame_pixels (map.data,
+                          data,
+                          width,
+                          height,
+                          stride,
+                          output_width,
+                          output_height,
+                          y_invert,
+                          transform);
   gst_buffer_unmap (buffer, &map);
 
   GST_BUFFER_DURATION (buffer) = gst_util_uint64_scale_int (

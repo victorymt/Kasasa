@@ -21,30 +21,7 @@
 #include <adwaita.h>
 
 #include "kasasa-preferences.h"
-
-static GtkWidget *
-find_widget_by_id (GtkWidget  *widget,
-                   const char *id)
-{
-  GtkWidget *child;
-  const char *widget_id;
-
-  widget_id = gtk_buildable_get_buildable_id (GTK_BUILDABLE (widget));
-  if (g_strcmp0 (widget_id, id) == 0)
-    return widget;
-
-  for (child = gtk_widget_get_first_child (widget);
-       child != NULL;
-       child = gtk_widget_get_next_sibling (child))
-    {
-      GtkWidget *match = find_widget_by_id (child, id);
-
-      if (match != NULL)
-        return match;
-    }
-
-  return NULL;
-}
+#include "test-gtk-utils.h"
 
 static void
 reset_settings (GSettings *settings)
@@ -86,7 +63,7 @@ get_preferences_child (KasasaPreferences *preferences,
 
   dialog_child = adw_dialog_get_child (ADW_DIALOG (preferences));
   g_assert_nonnull (dialog_child);
-  widget = find_widget_by_id (dialog_child, id);
+  widget = test_find_widget_by_id (dialog_child, id);
   g_assert_nonnull (widget);
 
   return widget;

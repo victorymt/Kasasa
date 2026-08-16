@@ -27,6 +27,7 @@
 #include "kasasa-screencast.h"
 #include "kasasa-screenshot.h"
 #include "kasasa-window.h"
+#include "test-gtk-utils.h"
 
 static const guint8 png_1x1[] = {
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -357,30 +358,6 @@ kasasa_window_is_initial_reveal_pending (KasasaWindow *window)
   return FALSE;
 }
 
-static GtkWidget *
-find_widget_by_id (GtkWidget  *widget,
-                   const char *id)
-{
-  GtkWidget *child;
-  const char *widget_id;
-
-  widget_id = gtk_buildable_get_buildable_id (GTK_BUILDABLE (widget));
-  if (g_strcmp0 (widget_id, id) == 0)
-    return widget;
-
-  for (child = gtk_widget_get_first_child (widget);
-       child != NULL;
-       child = gtk_widget_get_next_sibling (child))
-    {
-      GtkWidget *match = find_widget_by_id (child, id);
-
-      if (match != NULL)
-        return match;
-    }
-
-  return NULL;
-}
-
 static void
 dispatch_pending_sources (void)
 {
@@ -422,27 +399,27 @@ fixture_setup (Fixture *fixture,
   gtk_window_set_child (fixture->window, GTK_WIDGET (fixture->container));
 
   fixture->carousel = ADW_CAROUSEL (
-    find_widget_by_id (GTK_WIDGET (fixture->container), "carousel"));
-  fixture->add_button = find_widget_by_id (GTK_WIDGET (fixture->container),
+    test_find_widget_by_id (GTK_WIDGET (fixture->container), "carousel"));
+  fixture->add_button = test_find_widget_by_id (GTK_WIDGET (fixture->container),
                                            "add_screenshot_button");
-  fixture->window_screenshot_button = find_widget_by_id (
+  fixture->window_screenshot_button = test_find_widget_by_id (
     GTK_WIDGET (fixture->container), "add_window_screenshot_button");
-  fixture->more_actions_button = find_widget_by_id (
+  fixture->more_actions_button = test_find_widget_by_id (
     GTK_WIDGET (fixture->container), "more_actions_button");
-  fixture->remove_button = find_widget_by_id (GTK_WIDGET (fixture->container),
+  fixture->remove_button = test_find_widget_by_id (GTK_WIDGET (fixture->container),
                                               "remove_content_button");
-  fixture->retake_button = find_widget_by_id (GTK_WIDGET (fixture->container),
+  fixture->retake_button = test_find_widget_by_id (GTK_WIDGET (fixture->container),
                                               "retake_screenshot_button");
-  fixture->delayed_button = find_widget_by_id (GTK_WIDGET (fixture->container),
+  fixture->delayed_button = test_find_widget_by_id (GTK_WIDGET (fixture->container),
                                                "add_delayed_screenshot_button");
-  fixture->screencast_button = find_widget_by_id (
+  fixture->screencast_button = test_find_widget_by_id (
     GTK_WIDGET (fixture->container), "add_screencast_button");
-  fixture->hyprland_monitor_screencast_button = find_widget_by_id (
+  fixture->hyprland_monitor_screencast_button = test_find_widget_by_id (
     GTK_WIDGET (fixture->container),
     "add_hyprland_monitor_screencast_button");
-  fixture->stop_screencast_button = find_widget_by_id (
+  fixture->stop_screencast_button = test_find_widget_by_id (
     GTK_WIDGET (fixture->container), "stop_screencast_button");
-  fixture->toolbar_overlay = find_widget_by_id (GTK_WIDGET (fixture->container),
+  fixture->toolbar_overlay = test_find_widget_by_id (GTK_WIDGET (fixture->container),
                                                 "toolbar_overlay");
   g_assert_nonnull (fixture->carousel);
   g_assert_nonnull (fixture->add_button);

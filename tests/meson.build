@@ -126,8 +126,9 @@ region_capture_test = executable(
     'test-region-capture.c',
     '../src/kasasa-region-capture.c',
   ],
+  c_args: ['-DKASASA_ENABLE_TESTS'],
   include_directories: include_directories('../src'),
-  dependencies: gio_dep,
+  dependencies: [gio_dep, dependency('gdk-pixbuf-2.0')],
 )
 
 test(
@@ -172,6 +173,36 @@ test(
   env: ['G_DEBUG=fatal-warnings'],
   suite: 'unit',
   timeout: 30,
+)
+
+hyprland_capture_test = executable(
+  'test-hyprland-capture',
+  [
+    'test-hyprland-capture.c',
+    '../src/kasasa-hyprland-capture.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-window-query.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
+  ],
+  c_args: ['-DKASASA_ENABLE_TESTS'],
+  include_directories: include_directories('../src', '.'),
+  dependencies: [
+    gtk_dep,
+    json_glib_dep,
+    wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
+    rt_dep,
+  ],
+)
+
+test(
+  'Hyprland capture cancellation',
+  hyprland_capture_test,
+  env: ['G_DEBUG=fatal-warnings'],
+  suite: 'unit',
+  timeout: 10,
 )
 
 gtk_screenshot_test = executable(
@@ -389,10 +420,22 @@ test(
 )
 
 if get_option('integration_tests')
+  wayland_integration_deps = [gtk_dep]
+  wayland_integration_c_args = []
+  if gtk_layer_shell_dep.found()
+    wayland_integration_deps = [
+      gtk_layer_shell_dep,
+      gtk_dep,
+      wayland_client_dep,
+    ]
+    wayland_integration_c_args += '-DKASASA_HAVE_LAYER_SHELL'
+  endif
+
   wayland_integration_test = executable(
     'test-wayland-integration',
     'test-wayland-integration.c',
-    dependencies: gtk_dep,
+    dependencies: wayland_integration_deps,
+    c_args: wayland_integration_c_args,
   )
 
   test(

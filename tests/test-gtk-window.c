@@ -28,6 +28,7 @@
 #include "kasasa-application.h"
 #include "kasasa-content-container.h"
 #include "kasasa-window.h"
+#include "test-gtk-utils.h"
 
 typedef struct
 {
@@ -53,30 +54,6 @@ typedef struct
   gboolean reversed;
   gboolean allocation_reversed;
 } ResizeTrace;
-
-static GtkWidget *
-find_widget_by_id (GtkWidget  *widget,
-                   const char *id)
-{
-  GtkWidget *child;
-  const char *widget_id;
-
-  widget_id = gtk_buildable_get_buildable_id (GTK_BUILDABLE (widget));
-  if (g_strcmp0 (widget_id, id) == 0)
-    return widget;
-
-  for (child = gtk_widget_get_first_child (widget);
-       child != NULL;
-       child = gtk_widget_get_next_sibling (child))
-    {
-      GtkWidget *match = find_widget_by_id (child, id);
-
-      if (match != NULL)
-        return match;
-    }
-
-  return NULL;
-}
 
 static GtkEventController *
 find_motion_controller (GtkWidget *widget)
@@ -235,12 +212,12 @@ test_initial_reveal_waits_for_stable_geometry (void)
                          "application", application,
                          NULL);
   g_assert_false (gtk_window_get_decorated (GTK_WINDOW (window)));
-  content_container = find_widget_by_id (GTK_WIDGET (window),
+  content_container = test_find_widget_by_id (GTK_WIDGET (window),
                                          "content_container");
   header_bar_revealer = GTK_REVEALER (
-    find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+    test_find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
   toolbar_revealer = GTK_REVEALER (
-    find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
+    test_find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
   g_assert_nonnull (content_container);
   g_assert_nonnull (header_bar_revealer);
   g_assert_nonnull (toolbar_revealer);
@@ -323,9 +300,9 @@ test_quit_wipes_real_window_content (void)
                          "application", application,
                          NULL);
   container = KASASA_CONTENT_CONTAINER (
-    find_widget_by_id (GTK_WIDGET (window), "content_container"));
+    test_find_widget_by_id (GTK_WIDGET (window), "content_container"));
   close_data.carousel = ADW_CAROUSEL (
-    find_widget_by_id (GTK_WIDGET (window), "carousel"));
+    test_find_widget_by_id (GTK_WIDGET (window), "carousel"));
   g_assert_nonnull (container);
   g_assert_nonnull (close_data.carousel);
 
@@ -384,14 +361,14 @@ test_internal_motion_keeps_controls_visible (void)
   window = g_object_new (KASASA_TYPE_WINDOW,
                          "application", application,
                          NULL);
-  content_container = find_widget_by_id (GTK_WIDGET (window),
+  content_container = test_find_widget_by_id (GTK_WIDGET (window),
                                          "content_container");
   header_bar_revealer = GTK_REVEALER (
-    find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+    test_find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
   toolbar_revealer = GTK_REVEALER (
-    find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
+    test_find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
   more_actions_button = GTK_MENU_BUTTON (
-    find_widget_by_id (GTK_WIDGET (window), "more_actions_button"));
+    test_find_widget_by_id (GTK_WIDGET (window), "more_actions_button"));
   g_assert_nonnull (content_container);
   g_assert_nonnull (header_bar_revealer);
   g_assert_nonnull (toolbar_revealer);
@@ -472,15 +449,15 @@ test_preview_lock_keeps_controls_hidden (void)
   window = g_object_new (KASASA_TYPE_WINDOW,
                          "application", application,
                          NULL);
-  content_container = find_widget_by_id (GTK_WIDGET (window),
+  content_container = test_find_widget_by_id (GTK_WIDGET (window),
                                          "content_container");
   header_bar_revealer = GTK_REVEALER (
-    find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
+    test_find_widget_by_id (GTK_WIDGET (window), "header_bar_revealer"));
   toolbar_revealer = GTK_REVEALER (
-    find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
+    test_find_widget_by_id (GTK_WIDGET (window), "revealer_start_buttons"));
   lock_button = GTK_TOGGLE_BUTTON (
-    find_widget_by_id (GTK_WIDGET (window), "lock_button"));
-  locked_mode_button = find_widget_by_id (GTK_WIDGET (window),
+    test_find_widget_by_id (GTK_WIDGET (window), "lock_button"));
+  locked_mode_button = test_find_widget_by_id (GTK_WIDGET (window),
                                           "locked_mode_button");
   g_assert_nonnull (content_container);
   g_assert_nonnull (header_bar_revealer);
@@ -787,9 +764,9 @@ test_switch_resize_modes (void)
                          "application", application,
                          NULL);
   container = KASASA_CONTENT_CONTAINER (
-    find_widget_by_id (GTK_WIDGET (window), "content_container"));
+    test_find_widget_by_id (GTK_WIDGET (window), "content_container"));
   close_data.carousel = ADW_CAROUSEL (
-    find_widget_by_id (GTK_WIDGET (window), "carousel"));
+    test_find_widget_by_id (GTK_WIDGET (window), "carousel"));
   g_assert_nonnull (container);
   g_assert_nonnull (close_data.carousel);
 
@@ -902,9 +879,9 @@ test_continuous_zoom_shrink (void)
                          "application", application,
                          NULL);
   container = KASASA_CONTENT_CONTAINER (
-    find_widget_by_id (GTK_WIDGET (window), "content_container"));
+    test_find_widget_by_id (GTK_WIDGET (window), "content_container"));
   close_data.carousel = ADW_CAROUSEL (
-    find_widget_by_id (GTK_WIDGET (window), "carousel"));
+    test_find_widget_by_id (GTK_WIDGET (window), "carousel"));
   g_assert_nonnull (container);
   g_assert_nonnull (close_data.carousel);
 

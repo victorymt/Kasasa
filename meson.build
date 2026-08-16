@@ -4,6 +4,8 @@ project('kasasa', 'c',
   default_options: [ 'warning_level=2', 'werror=false', 'c_std=gnu11', ],
 )
 
+gtk_layer_shell_dep = dependency('gtk4-layer-shell-0', required: false)
+
 i18n = import('i18n')
 gnome = import('gnome')
 cc = meson.get_compiler('c')

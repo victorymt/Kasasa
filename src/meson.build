@@ -70,12 +70,21 @@ kasasa_sources = [
   wayland_protocols_gen,
 ]
 
-kasasa_deps = [
+kasasa_deps = []
+kasasa_c_args = []
+if gtk_layer_shell_dep.found()
+  # The request shim must load before the direct Wayland client dependency.
+  kasasa_deps += gtk_layer_shell_dep
+  kasasa_c_args += '-DKASASA_HAVE_LAYER_SHELL'
+endif
+
+kasasa_deps += [
   dependency('gtk4', version: '>= 4.14'),
   dependency('libadwaita-1', version: '>= 1.7.4'),
   dependency('gstreamer-1.0'),
   dependency('gstreamer-app-1.0'),
   dependency('json-glib-1.0'),
+  dependency('gdk-pixbuf-2.0'),
   dependency('gbm'),
   dependency('libdrm'),
   wayland_client_dep,
@@ -91,6 +100,7 @@ kasasa_sources += gnome.compile_resources('kasasa-resources',
 
 executable('kasasa', kasasa_sources,
   dependencies: kasasa_deps,
+  c_args: kasasa_c_args,
   include_directories: include_directories('.'),
        install: true,
 )

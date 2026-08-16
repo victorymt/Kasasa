@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+            appstream desktop-file-utils gcc gettext libadwaita-devel \
+            libdrm-devel json-glib-devel mesa-libgbm-devel meson ninja-build \
+            pkgconf-pkg-config gstreamer1-devel gstreamer1-plugins-base-devel \
+            gtk4-devel valgrind wayland-devel wayland-protocols-devel \
+            xorg-x11-server-Xvfb
+      - name: Configure
+        run: meson setup build --buildtype=debug
+      - name: Build
+        run: meson compile -C build
+      - name: Test
+        run: |
+          Xvfb :99 -screen 0 1280x1024x24 &
+          xvfb_pid=$!
+          trap 'kill "$xvfb_pid"' EXIT
+          attempt=0
+          while [ "$attempt" -lt 50 ]; do
+            if [ -S /tmp/.X11-unix/X99 ]; then
+              break
+            fi
+            kill -0 "$xvfb_pid"
+            sleep 0.1
+            attempt=$((attempt + 1))
+          done
+          test -S /tmp/.X11-unix/X99
+          DISPLAY=:99 GDK_BACKEND=x11 KASASA_REQUIRE_DISPLAY=1 \
+            meson test -C build --print-errorlogs
+      - name: Check capture lifecycle with Valgrind
+        run: |
+          valgrind \
+            --leak-check=full \
+            --show-leak-kinds=definite \
+            --errors-for-leak-kinds=definite \
+            --error-exitcode=1 \
+            build/tests/test-hyprland-capture
+      - name: Verify installation
+        run: meson install -C build --destdir "$RUNNER_TEMP/kasasa-install"
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+            appstream desktop-file-utils gcc gettext libadwaita-devel \
+            libdrm-devel json-glib-devel mesa-libgbm-devel meson ninja-build \
+            pkgconf-pkg-config gstreamer1-devel gstreamer1-plugins-base-devel \
+            gtk4-devel wayland-devel wayland-protocols-devel \
+            xorg-x11-server-Xvfb
+      - name: Configure sanitizers
+        run: meson setup build-sanitize --buildtype=debug -Db_sanitize=address,undefined
+      - name: Build
+        run: meson compile -C build-sanitize
+      - name: Test with ASan and UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          Xvfb :99 -screen 0 1280x1024x24 &
+          xvfb_pid=$!
+          trap 'kill "$xvfb_pid"' EXIT
+          attempt=0
+          while [ "$attempt" -lt 50 ]; do
+            if [ -S /tmp/.X11-unix/X99 ]; then
+              break
+            fi
+            kill -0 "$xvfb_pid"
+            sleep 0.1
+            attempt=$((attempt + 1))
+          done
+          test -S /tmp/.X11-unix/X99
+          DISPLAY=:99 GDK_BACKEND=x11 KASASA_REQUIRE_DISPLAY=1 \
+            meson test -C build-sanitize --print-errorlogs

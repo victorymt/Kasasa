@@ -21,6 +21,10 @@
 #include <gdk/wayland/gdkwayland.h>
 #include <gtk/gtk.h>
 
+#ifdef KASASA_HAVE_LAYER_SHELL
+#include <gtk-layer-shell/gtk-layer-shell.h>
+#endif
+
 static void
 test_wayland_display (void)
 {
@@ -47,6 +51,22 @@ test_hyprland_session (void)
   g_assert_cmpstr (instance, !=, "");
 }
 
+#ifdef KASASA_HAVE_LAYER_SHELL
+static void
+test_layer_shell_linkage (void)
+{
+  guint protocol_version = gtk_layer_get_protocol_version ();
+
+  if (protocol_version == 0)
+    {
+      g_test_skip ("The compositor does not advertise Layer Shell");
+      return;
+    }
+
+  g_assert_true (gtk_layer_is_supported ());
+}
+#endif
+
 int
 main (int argc, char **argv)
 {
@@ -54,6 +74,10 @@ main (int argc, char **argv)
 
   g_test_add_func ("/integration/wayland-display", test_wayland_display);
   g_test_add_func ("/integration/hyprland-session", test_hyprland_session);
+#ifdef KASASA_HAVE_LAYER_SHELL
+  g_test_add_func ("/integration/layer-shell-linkage",
+                   test_layer_shell_linkage);
+#endif
 
   return g_test_run ();
 }

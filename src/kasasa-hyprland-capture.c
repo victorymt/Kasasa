@@ -28,8 +28,22 @@
 #include <wayland-client-protocol.h>
 
 #include "kasasa-hyprland-capture.h"
+#include "kasasa-hyprland-capture-private.h"
+#include "kasasa-frame-transform.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-window-query.h"
+
+#define CAPTURE_FIRST_FRAME_TIMEOUT_USEC (5 * G_TIME_SPAN_SECOND)
+#define CAPTURE_WAIT_INTERVAL_USEC       (100 * G_TIME_SPAN_MILLISECOND)
+
+static KasasaHyprlandCaptureBackendOps backend_ops = {
+  .available = kasasa_hyprland_stream_available,
+  .handle_from_address = kasasa_hyprland_stream_handle_from_address,
+  .start = kasasa_hyprland_stream_start,
+  .stop = kasasa_hyprland_stream_stop,
+};
+static gint64 capture_first_frame_timeout_usec =
+  CAPTURE_FIRST_FRAME_TIMEOUT_USEC;
 
 typedef struct
 {
@@ -57,6 +71,48 @@ set_capture_error_literal (GError      **error,
                        KASASA_WINDOW_QUERY_ERROR,
                        KASASA_WINDOW_QUERY_ERROR_FAILED,
                        message);
+}
+
+static gboolean
+capture_format_supported (KasasaHyprlandStreamFormat format)
+{
+  return format == KASASA_HYPRLAND_STREAM_FORMAT_BGRX
+         || format == KASASA_HYPRLAND_STREAM_FORMAT_BGRA
+         || format == KASASA_HYPRLAND_STREAM_FORMAT_RGBX
+         || format == KASASA_HYPRLAND_STREAM_FORMAT_RGBA;
+}
+
+static void
+copy_pixel_rgba (KasasaHyprlandStreamFormat  format,
+                 const guint8                *source,
+                 guint8                      *destination)
+{
+  switch (format)
+    {
+    case KASASA_HYPRLAND_STREAM_FORMAT_BGRX:
+      destination[0] = source[2];
+      destination[1] = source[1];
+      destination[2] = source[0];
+      destination[3] = 0xff;
+      break;
+    case KASASA_HYPRLAND_STREAM_FORMAT_BGRA:
+      destination[0] = source[2];
+      destination[1] = source[1];
+      destination[2] = source[0];
+      destination[3] = source[3];
+      break;
+    case KASASA_HYPRLAND_STREAM_FORMAT_RGBX:
+      destination[0] = source[0];
+      destination[1] = source[1];
+      destination[2] = source[2];
+      destination[3] = 0xff;
+      break;
+    case KASASA_HYPRLAND_STREAM_FORMAT_RGBA:
+      memcpy (destination, source, 4);
+      break;
+    default:
+      g_assert_not_reached ();
+    }
 }
 
 static guint8 *
@@ -98,21 +154,20 @@ copy_frame_rgba (const guint8                *data,
       return NULL;
     }
 
-  if (transform > WL_OUTPUT_TRANSFORM_FLIPPED_270)
-    transform = WL_OUTPUT_TRANSFORM_NORMAL;
-  if (transform == WL_OUTPUT_TRANSFORM_90
-      || transform == WL_OUTPUT_TRANSFORM_270
-      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_90
-      || transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+  if (!capture_format_supported (format))
     {
-      transformed_width = height;
-      transformed_height = width;
+      set_capture_error_literal (
+        error,
+        _("The compositor provided an unsupported window frame format"));
+      return NULL;
     }
-  else
-    {
-      transformed_width = width;
-      transformed_height = height;
-    }
+
+  transform = kasasa_frame_transform_normalize (transform);
+  kasasa_frame_transform_dimensions (width,
+                                     height,
+                                     transform,
+                                     &transformed_width,
+                                     &transformed_height);
 
   output_row_size = (gsize) transformed_width * 4;
   if ((gsize) transformed_height > G_MAXSIZE / output_row_size)
@@ -138,42 +193,13 @@ copy_frame_rgba (const guint8                *data,
           gint source_x;
           gint source_y;
 
-          switch (transform)
-            {
-            case WL_OUTPUT_TRANSFORM_90:
-              source_x = width - 1 - y;
-              source_y = x;
-              break;
-            case WL_OUTPUT_TRANSFORM_180:
-              source_x = width - 1 - x;
-              source_y = height - 1 - y;
-              break;
-            case WL_OUTPUT_TRANSFORM_270:
-              source_x = y;
-              source_y = height - 1 - x;
-              break;
-            case WL_OUTPUT_TRANSFORM_FLIPPED:
-              source_x = width - 1 - x;
-              source_y = y;
-              break;
-            case WL_OUTPUT_TRANSFORM_FLIPPED_90:
-              source_x = y;
-              source_y = x;
-              break;
-            case WL_OUTPUT_TRANSFORM_FLIPPED_180:
-              source_x = x;
-              source_y = height - 1 - y;
-              break;
-            case WL_OUTPUT_TRANSFORM_FLIPPED_270:
-              source_x = width - 1 - y;
-              source_y = height - 1 - x;
-              break;
-            case WL_OUTPUT_TRANSFORM_NORMAL:
-            default:
-              source_x = x;
-              source_y = y;
-              break;
-            }
+          kasasa_frame_transform_source_position (transform,
+                                                  width,
+                                                  height,
+                                                  x,
+                                                  y,
+                                                  &source_x,
+                                                  &source_y);
 
           if (y_invert)
             source_y = height - 1 - source_y;
@@ -183,36 +209,7 @@ copy_frame_rgba (const guint8                *data,
           destination = pixels + (gsize) y * output_row_size
                                + (gsize) x * 4;
 
-          switch (format)
-            {
-            case KASASA_HYPRLAND_STREAM_FORMAT_BGRX:
-              destination[0] = source[2];
-              destination[1] = source[1];
-              destination[2] = source[0];
-              destination[3] = 0xff;
-              break;
-            case KASASA_HYPRLAND_STREAM_FORMAT_BGRA:
-              destination[0] = source[2];
-              destination[1] = source[1];
-              destination[2] = source[0];
-              destination[3] = source[3];
-              break;
-            case KASASA_HYPRLAND_STREAM_FORMAT_RGBX:
-              destination[0] = source[0];
-              destination[1] = source[1];
-              destination[2] = source[2];
-              destination[3] = 0xff;
-              break;
-            case KASASA_HYPRLAND_STREAM_FORMAT_RGBA:
-              memcpy (destination, source, 4);
-              break;
-            default:
-              g_free (pixels);
-              set_capture_error_literal (
-                error,
-                _("The compositor provided an unsupported window frame format"));
-              return NULL;
-            }
+          copy_pixel_rgba (format, source, destination);
         }
     }
 
@@ -298,7 +295,7 @@ on_capture_error (gpointer      user_data,
 gboolean
 kasasa_hyprland_capture_available (void)
 {
-  return kasasa_hyprland_stream_available ();
+  return backend_ops.available ();
 }
 
 static void
@@ -310,6 +307,7 @@ captured_image_free (CapturedImage *image)
 
 static CapturedImage *
 capture_window_frame (const KasasaWindowClient *client,
+                      GCancellable             *cancellable,
                       GError                  **error)
 {
   CaptureFrame capture = { 0 };
@@ -326,30 +324,67 @@ capture_window_frame (const KasasaWindowClient *client,
       return NULL;
     }
 
-  if (!kasasa_hyprland_stream_handle_from_address (client->address,
-                                                   &handle,
-                                                   error))
+  if (!backend_ops.handle_from_address (client->address, &handle, error))
     return NULL;
 
   g_mutex_init (&capture.mutex);
   g_cond_init (&capture.cond);
-  stream = kasasa_hyprland_stream_start (handle,
-                                         120,
-                                         on_capture_frame,
-                                         on_capture_error,
-                                         &capture,
-                                         NULL,
-                                         error);
+  stream = backend_ops.start (handle,
+                              120,
+                              on_capture_frame,
+                              on_capture_error,
+                              &capture,
+                              NULL,
+                              error);
   if (stream == NULL)
     goto out;
 
   g_mutex_lock (&capture.mutex);
-  while (!capture.completed)
-    g_cond_wait (&capture.cond, &capture.mutex);
+  {
+    gint64 deadline = g_get_monotonic_time ()
+                      + capture_first_frame_timeout_usec;
+
+    while (!capture.completed)
+      {
+        gint64 wait_until;
+
+        if (cancellable != NULL && g_cancellable_is_cancelled (cancellable))
+          {
+            g_set_error_literal (error,
+                                 G_IO_ERROR,
+                                 G_IO_ERROR_CANCELLED,
+                                 _("Window capture cancelled"));
+            break;
+          }
+
+        wait_until = MIN (deadline,
+                          g_get_monotonic_time ()
+                          + CAPTURE_WAIT_INTERVAL_USEC);
+
+        if (!g_cond_wait_until (&capture.cond, &capture.mutex, wait_until)
+            && !capture.completed)
+          {
+            if (cancellable != NULL && g_cancellable_is_cancelled (cancellable))
+              g_set_error_literal (error,
+                                   G_IO_ERROR,
+                                   G_IO_ERROR_CANCELLED,
+                                   _("Window capture cancelled"));
+            else if (g_get_monotonic_time () >= deadline)
+              set_capture_error_literal (error,
+                                         _("Timed out waiting for the window frame"));
+            else
+              continue;
+            break;
+          }
+      }
+  }
   g_mutex_unlock (&capture.mutex);
 
-  kasasa_hyprland_stream_stop (stream);
+  backend_ops.stop (stream);
   stream = NULL;
+
+  if (error != NULL && *error != NULL)
+    goto out;
 
   if (capture.error != NULL)
     {
@@ -364,7 +399,7 @@ capture_window_frame (const KasasaWindowClient *client,
 
 out:
   if (stream != NULL)
-    kasasa_hyprland_stream_stop (stream);
+    backend_ops.stop (stream);
   g_free (capture.pixels);
   g_clear_error (&capture.error);
   g_cond_clear (&capture.cond);
@@ -427,7 +462,7 @@ kasasa_hyprland_capture_screenshot (const KasasaWindowClient *client,
   g_return_val_if_fail (client != NULL, NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
-  image = capture_window_frame (client, &local_error);
+  image = capture_window_frame (client, NULL, &local_error);
   if (image == NULL)
     {
       g_propagate_error (error, g_steal_pointer (&local_error));
@@ -452,7 +487,7 @@ capture_screenshot_thread (GTask        *task,
   if (g_task_return_error_if_cancelled (task))
     return;
 
-  image = capture_window_frame (client, &error);
+  image = capture_window_frame (client, cancellable, &error);
   if (image == NULL)
     {
       if (error == NULL)
@@ -485,7 +520,6 @@ kasasa_hyprland_capture_screenshot_async (const KasasaWindowClient *client,
   g_task_set_task_data (task,
                         kasasa_window_client_copy (client),
                         (GDestroyNotify) kasasa_window_client_free);
-  g_task_set_return_on_cancel (task, TRUE);
   g_task_run_in_thread (task, capture_screenshot_thread);
   g_object_unref (task);
 }
@@ -511,3 +545,64 @@ kasasa_hyprland_capture_screenshot_finish (GAsyncResult *result,
   captured_image_free (image);
   return uri;
 }
+
+#ifdef KASASA_ENABLE_TESTS
+void
+kasasa_hyprland_capture_test_set_backend (
+  const KasasaHyprlandCaptureBackendOps *ops)
+{
+  g_return_if_fail (ops != NULL);
+  g_return_if_fail (ops->available != NULL);
+  g_return_if_fail (ops->handle_from_address != NULL);
+  g_return_if_fail (ops->start != NULL);
+  g_return_if_fail (ops->stop != NULL);
+
+  backend_ops = *ops;
+}
+
+void
+kasasa_hyprland_capture_test_set_timeout (gint64 timeout_usec)
+{
+  g_return_if_fail (timeout_usec > 0);
+  capture_first_frame_timeout_usec = timeout_usec;
+}
+
+void
+kasasa_hyprland_capture_test_reset (void)
+{
+  const KasasaHyprlandCaptureBackendOps default_ops = {
+    .available = kasasa_hyprland_stream_available,
+    .handle_from_address = kasasa_hyprland_stream_handle_from_address,
+    .start = kasasa_hyprland_stream_start,
+    .stop = kasasa_hyprland_stream_stop,
+  };
+
+  backend_ops = default_ops;
+  capture_first_frame_timeout_usec = CAPTURE_FIRST_FRAME_TIMEOUT_USEC;
+}
+
+guint8 *
+kasasa_hyprland_capture_test_copy_frame (
+  const guint8                *data,
+  gint                         width,
+  gint                         height,
+  gint                         stride,
+  KasasaHyprlandStreamFormat   format,
+  gboolean                     y_invert,
+  guint32                      transform,
+  gint                        *output_width,
+  gint                        *output_height,
+  GError                     **error)
+{
+  return copy_frame_rgba (data,
+                          width,
+                          height,
+                          stride,
+                          format,
+                          y_invert,
+                          transform,
+                          output_width,
+                          output_height,
+                          error);
+}
+#endif
