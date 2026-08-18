@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "2baf8ba3bff4d7dd39bb2dd1e458c04dff6ac5fe",
-    "indexed_at": "2026-08-18T06:38:23Z",
+    "commit": "99ebabf7a60f6ee893f034d9c17ea10e0e03753f",
+    "indexed_at": "2026-08-18T15:40:39Z",
     "project": "home-cv-project-temp-Kasasa",
-    "nodes": 1403,
-    "edges": 4616,
-    "original_size": 6815744,
-    "compressed_size": 1186265,
+    "nodes": 1446,
+    "edges": 4869,
+    "original_size": 7077888,
+    "compressed_size": 1223072,
     "compression_level": 3
 }

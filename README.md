@@ -145,8 +145,15 @@ then run:
 ```sh
 meson setup build --buildtype=release
 meson compile -C build
-./build/src/kasasa
+meson devenv -C build kasasa
 ```
+
+For a repeatable debug session, use `./tools/run-debug --logs --` followed by
+the application options. See [docs/debugging.md](docs/debugging.md) for
+GStreamer, Wayland, GTK, sanitizer, and crash diagnostics.
+
+`kasasa --diagnostics` prints the runtime dependencies and session details
+needed when reporting a capture issue.
 
 To install the compiled application:
 

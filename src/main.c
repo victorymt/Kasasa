@@ -32,12 +32,26 @@ main (int   argc,
       char *argv[])
 {
   g_autoptr(KasasaApplication) app = NULL;
+  gboolean diagnostics = FALSE;
+  int i;
   int ret;
+
+  for (i = 1; i < argc; i++)
+    {
+      if (g_str_equal (argv[i], "--diagnostics"))
+        {
+          diagnostics = TRUE;
+          break;
+        }
+    }
 
   /* Apply the saved language before gettext or any GTK template performs its
    * first translation lookup.  Existing widgets cannot be safely retranslated
    * in place, so preference changes take effect on the next launch. */
-  kasasa_language_apply_from_settings ();
+  /* Diagnostics must remain usable before a display or installed GSettings
+   * schema is available, so skip preference initialization in that mode. */
+  if (!diagnostics)
+    kasasa_language_apply_from_settings ();
 
   bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");

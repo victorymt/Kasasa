@@ -9,8 +9,12 @@ and `wayland-protocols`, then configure and build the project:
 ```sh
 meson setup build --buildtype=debug
 meson compile -C build
-./build/src/kasasa
+meson devenv -C build kasasa
 ```
+
+Use `./tools/run-debug` for a reproducible log, Wayland, GStreamer, or gdb
+session. The complete troubleshooting runbook is in
+[`docs/debugging.md`](docs/debugging.md).
 
 ## Testing
 
@@ -43,7 +47,7 @@ meson setup build-sanitize --buildtype=debug -Db_sanitize=address,undefined
 meson compile -C build-sanitize
 ASAN_OPTIONS=detect_leaks=0 meson test -C build-sanitize --print-errorlogs
 valgrind --leak-check=full --errors-for-leak-kinds=definite \
-  --error-exitcode=1 build/tests/test-hyprland-capture
+  --track-fds=yes --error-exitcode=1 build/tests/test-hyprland-capture
 ```
 
 The CI workflow also verifies a staged `meson install` so packaging regressions
@@ -57,6 +61,12 @@ meson setup build-integration -Dintegration_tests=true
 meson compile -C build-integration
 meson test -C build-integration --suite integration --print-errorlogs
 ```
+
+This suite performs a real monitor first-frame check and creates a temporary
+window for a DMA-BUF-or-wl_shm capture and stop check. It must run in the host
+Hyprland session; a restricted sandbox may not be able to reach the compositor
+socket. Set `KASASA_INTEGRATION_OUTPUT` when the first GDK monitor is not the
+output under investigation. Layer-shell support is skipped when unavailable.
 
 ## Translating
 

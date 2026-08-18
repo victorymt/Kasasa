@@ -6,6 +6,7 @@
 #include <gio/gio.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <glib/gstdio.h>
+#include <string.h>
 
 #include "kasasa-region-capture.h"
 #include "kasasa-region-capture-private.h"
@@ -78,11 +79,9 @@ teardown_fake_path (void)
   g_autofree gchar *slurp = g_build_filename (fake_bin_dir, "slurp", NULL);
   g_autofree gchar *grim = g_build_filename (fake_bin_dir, "grim", NULL);
 
-  if (old_path != NULL)
-    g_setenv ("PATH", old_path, TRUE);
-  else
-    g_unsetenv ("PATH");
-
+  /* Do not restore PATH here: GLib's worker pool may still exist after the
+   * last task completed, and changing the process environment is not
+   * thread-safe. The test process exits immediately after this cleanup. */
   g_remove (slurp);
   g_remove (grim);
   g_rmdir (fake_bin_dir);
@@ -116,7 +115,6 @@ test_capture_success (void)
   g_autoptr (GError) error = NULL;
   gint fd;
 
-  setup_fake_path ();
   fd = g_file_open_tmp ("kasasa-region-frame-test-XXXXXX.png", &frame_path,
                         &error);
   g_assert_no_error (error);
@@ -128,16 +126,21 @@ test_capture_success (void)
                                       sizeof png_1x1,
                                       &error));
   g_assert_no_error (error);
-  g_setenv ("KASASA_REGION_FRAME", frame_path, TRUE);
-  g_setenv ("KASASA_REGION_FRAME_READY", ready_path, TRUE);
-  write_program ("slurp",
-                 "#!/bin/sh\n"
-                 "test -f \"$KASASA_REGION_FRAME_READY\" || exit 3\n"
-                 "printf '0,0 1x1\\n'\n");
-  write_program ("grim",
-                 "#!/bin/sh\n"
-                 "cp \"$KASASA_REGION_FRAME\" \"$1\"\n"
-                 "touch \"$KASASA_REGION_FRAME_READY\"\n");
+  {
+    g_autofree gchar *slurp_script =
+      g_strdup_printf ("#!/bin/sh\n"
+                       "test -f '%s' || exit 3\n"
+                       "printf '0,0 1x1\\n'\n",
+                       ready_path);
+    g_autofree gchar *grim_script =
+      g_strdup_printf ("#!/bin/sh\n"
+                       "cp '%s' \"$1\"\n"
+                       "touch '%s'\n",
+                       frame_path,
+                       ready_path);
+    write_program ("slurp", slurp_script);
+    write_program ("grim", grim_script);
+  }
 
   g_assert_true (kasasa_region_capture_available ());
   capture = run_capture (NULL);
@@ -153,11 +156,8 @@ test_capture_success (void)
   g_assert_true (g_file_delete (file, NULL, NULL));
 
   g_free (capture.uri);
-  g_unsetenv ("KASASA_REGION_FRAME");
-  g_unsetenv ("KASASA_REGION_FRAME_READY");
   g_remove (frame_path);
   g_remove (ready_path);
-  teardown_fake_path ();
 }
 
 static void
@@ -165,7 +165,6 @@ test_selection_cancelled (void)
 {
   CaptureResult capture;
 
-  setup_fake_path ();
   write_program ("slurp", "#!/bin/sh\nexit 1\n");
   write_program ("grim", "#!/bin/sh\nexit 0\n");
 
@@ -174,7 +173,6 @@ test_selection_cancelled (void)
   g_assert_error (capture.error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
 
   g_clear_error (&capture.error);
-  teardown_fake_path ();
 }
 
 static void
@@ -182,16 +180,16 @@ test_selection_failure (void)
 {
   CaptureResult capture;
 
-  setup_fake_path ();
   write_program ("slurp", "#!/bin/sh\nexit 2\n");
   write_program ("grim", "#!/bin/sh\nexit 0\n");
 
   capture = run_capture (NULL);
   g_assert_null (capture.uri);
   g_assert_error (capture.error, G_IO_ERROR, G_IO_ERROR_FAILED);
+  g_assert_nonnull (strstr (capture.error->message,
+                            "slurp failed with exit status 2"));
 
   g_clear_error (&capture.error);
-  teardown_fake_path ();
 }
 
 static void
@@ -199,16 +197,16 @@ test_grim_failure (void)
 {
   CaptureResult capture;
 
-  setup_fake_path ();
   write_program ("slurp", "#!/bin/sh\nprintf '0,0 20x20\\n'\n");
   write_program ("grim", "#!/bin/sh\nexit 2\n");
 
   capture = run_capture (NULL);
   g_assert_null (capture.uri);
   g_assert_error (capture.error, G_IO_ERROR, G_IO_ERROR_FAILED);
+  g_assert_nonnull (strstr (capture.error->message,
+                            "grim failed with exit status 2"));
 
   g_clear_error (&capture.error);
-  teardown_fake_path ();
 }
 
 static gboolean
@@ -224,7 +222,6 @@ test_running_selector_cancelled (void)
   g_autoptr (GCancellable) cancellable = g_cancellable_new ();
   CaptureResult capture;
 
-  setup_fake_path ();
   write_program ("slurp", "#!/bin/sh\nwhile :; do :; done\n");
   write_program ("grim", "#!/bin/sh\nexit 0\n");
 
@@ -234,7 +231,6 @@ test_running_selector_cancelled (void)
   g_assert_error (capture.error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
 
   g_clear_error (&capture.error);
-  teardown_fake_path ();
 }
 
 static void
@@ -346,6 +342,10 @@ main (int argc, char **argv)
 {
   g_test_init (&argc, &argv, NULL);
 
+  /* Set PATH before GLib creates worker threads. Individual tests only
+   * rewrite the fake programs, avoiding thread-unsafe setenv calls. */
+  setup_fake_path ();
+
   g_test_add_func ("/region-capture/success", test_capture_success);
   g_test_add_func ("/region-capture/selection-cancelled",
                    test_selection_cancelled);
@@ -365,5 +365,9 @@ main (int argc, char **argv)
   g_test_add_func ("/region-capture/geometry/identity",
                    test_geometry_identity);
 
-  return g_test_run ();
+  {
+    int status = g_test_run ();
+    teardown_fake_path ();
+    return status;
+  }
 }

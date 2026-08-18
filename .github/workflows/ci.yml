@@ -25,6 +25,8 @@ jobs:
         run: meson setup build --buildtype=debug
       - name: Build
         run: meson compile -C build
+      - name: Check debug helper
+        run: sh -n tools/run-debug
       - name: Check translations
         run: |
           meson compile -C build kasasa-pot
@@ -54,11 +56,19 @@ jobs:
           valgrind \
             --leak-check=full \
             --show-leak-kinds=definite \
+            --track-fds=yes \
             --errors-for-leak-kinds=definite \
             --error-exitcode=1 \
             build/tests/test-hyprland-capture
       - name: Verify installation
         run: meson install -C build --destdir "$RUNNER_TEMP/kasasa-install"
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasasa-test-logs
+          path: build/meson-logs/
+          if-no-files-found: ignore
 
   sanitizers:
     runs-on: ubuntu-latest
@@ -97,3 +107,77 @@ jobs:
           test -S /tmp/.X11-unix/X99
           DISPLAY=:99 GDK_BACKEND=x11 KASASA_REQUIRE_DISPLAY=1 \
             meson test -C build-sanitize --print-errorlogs
+      - name: Upload sanitizer logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasasa-sanitizer-logs
+          path: build-sanitize/meson-logs/
+          if-no-files-found: ignore
+
+  coverage:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+            appstream desktop-file-utils gcc gcovr gettext libadwaita-devel \
+            libdrm-devel json-glib-devel mesa-libgbm-devel meson ninja-build \
+            pkgconf-pkg-config gstreamer1-devel gstreamer1-plugins-base-devel \
+            gtk4-devel wayland-devel wayland-protocols-devel
+      - name: Configure coverage
+        run: meson setup build-coverage --buildtype=debug -Db_coverage=true
+      - name: Build
+        run: meson compile -C build-coverage
+      - name: Run headless unit tests
+        run: meson test -C build-coverage --suite unit --print-errorlogs
+      - name: Generate coverage report
+        run: meson compile -C build-coverage coverage-html coverage-xml
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasasa-coverage
+          path: |
+            build-coverage/meson-logs/coveragereport/
+            build-coverage/meson-logs/coverage.xml
+          if-no-files-found: error
+
+  thread-sanitizer:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          dnf install -y \
+            appstream desktop-file-utils gcc gettext libadwaita-devel \
+            libdrm-devel json-glib-devel mesa-libgbm-devel meson ninja-build \
+            pkgconf-pkg-config gstreamer1-devel gstreamer1-plugins-base-devel \
+            gtk4-devel wayland-devel wayland-protocols-devel
+      - name: Configure thread sanitizer
+        run: meson setup build-tsan --buildtype=debug -Db_sanitize=thread
+      - name: Build
+        run: meson compile -C build-tsan
+      - name: Run focused multithreaded tests
+        env:
+          G_DEBUG: fatal-warnings
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:history_size=7
+        run: |
+          set -o pipefail
+          build-tsan/tests/test-window-query \
+            -p /unit/hyprland-stream/connection-failure \
+            2>&1 | tee build-tsan/tsan-window-connection.log
+          build-tsan/tests/test-window-query \
+            -p /unit/hyprland-stream/output-connection-failure \
+            2>&1 | tee build-tsan/tsan-output-connection.log
+      - name: Upload TSan logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasasa-tsan-logs
+          path: |
+            build-tsan/meson-logs/
+            build-tsan/tsan-*.log
+          if-no-files-found: ignore

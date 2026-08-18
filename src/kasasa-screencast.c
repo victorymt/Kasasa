@@ -21,6 +21,7 @@
 
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/gstdebugutils.h>
 #include <glib/gi18n.h>
 #include <string.h>
 #include <wayland-client-protocol.h>
@@ -91,6 +92,10 @@ struct _KasasaScreencast
   GstElement              *appsrc;
   GstBufferPool           *frame_pool;
   GstBus                  *bus;
+  gboolean                 gst_trace;
+  gint64                   pipeline_started_at_usec;
+  gint64                   first_frame_at_usec;
+  gint                      gst_frames_pushed;
   KasasaHyprlandStream    *hypr_stream;
   gboolean                 finished;
   gboolean                 dmabuf_fallback_notified;
@@ -133,6 +138,24 @@ G_DEFINE_TYPE_WITH_CODE (KasasaScreencast, kasasa_screencast, ADW_TYPE_BIN,
                                                 kasasa_screencast_content_interface_init))
 
 static void clear_gstreamer_pipeline (KasasaScreencast *self);
+
+static gboolean
+gst_trace_enabled (void)
+{
+  const gchar *value = g_getenv ("KASASA_GST_TRACE");
+
+  return value != NULL && *value != '\0' && g_strcmp0 (value, "0") != 0;
+}
+
+static void
+dump_gstreamer_pipeline (KasasaScreencast *self,
+                         const gchar      *name)
+{
+  if (self->gst_trace && self->pipeline != NULL)
+    GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (self->pipeline),
+                                       GST_DEBUG_GRAPH_SHOW_ALL,
+                                       name);
+}
 
 static guint
 get_screencast_frame_rate (void)
@@ -290,6 +313,83 @@ eos_cb (GstBus           *bus,
 }
 
 static void
+warning_cb (GstBus           *bus,
+            GstMessage       *msg,
+            KasasaScreencast *self)
+{
+  g_autoptr (GError) warning = NULL;
+  g_autofree gchar *debug_info = NULL;
+
+  gst_message_parse_warning (msg, &warning, &debug_info);
+  g_debug ("GStreamer warning from %s: %s%s%s",
+           GST_OBJECT_NAME (msg->src),
+           warning != NULL ? warning->message : "unknown warning",
+           debug_info != NULL ? " debug=" : "",
+           debug_info != NULL ? debug_info : "");
+}
+
+static void
+state_changed_cb (GstBus           *bus,
+                  GstMessage       *msg,
+                  KasasaScreencast *self)
+{
+  GstState old_state;
+  GstState new_state;
+  GstState pending_state;
+
+  if (self->pipeline == NULL || GST_MESSAGE_SRC (msg) != GST_OBJECT (self->pipeline))
+    return;
+
+  gst_message_parse_state_changed (msg,
+                                   &old_state,
+                                   &new_state,
+                                   &pending_state);
+  g_debug ("GStreamer pipeline state %s -> %s (pending=%s, elapsed=%.1f ms)",
+           gst_state_get_name (old_state),
+           gst_state_get_name (new_state),
+           gst_state_get_name (pending_state),
+           self->pipeline_started_at_usec != 0
+             ? (gdouble) (g_get_monotonic_time ()
+                          - self->pipeline_started_at_usec) / 1000.0
+             : 0.0);
+}
+
+static void
+async_done_cb (GstBus           *bus,
+               GstMessage       *msg,
+               KasasaScreencast *self)
+{
+  GstClockTime running_time = GST_CLOCK_TIME_NONE;
+
+  gst_message_parse_async_done (msg, &running_time);
+  g_debug ("GStreamer pipeline async-done running-time=%" GST_TIME_FORMAT
+           " elapsed=%.1f ms",
+           GST_TIME_ARGS (running_time),
+           self->pipeline_started_at_usec != 0
+             ? (gdouble) (g_get_monotonic_time ()
+                          - self->pipeline_started_at_usec) / 1000.0
+             : 0.0);
+}
+
+static void
+qos_cb (GstBus           *bus,
+        GstMessage       *msg,
+        KasasaScreencast *self)
+{
+  GstFormat format = GST_FORMAT_UNDEFINED;
+  guint64 processed = 0;
+  guint64 dropped = 0;
+
+  gst_message_parse_qos_stats (msg, &format, &processed, &dropped);
+  g_debug ("GStreamer QOS from %s: format=%s processed=%" G_GUINT64_FORMAT
+           " dropped=%" G_GUINT64_FORMAT,
+           GST_OBJECT_NAME (msg->src),
+           gst_format_get_name (format),
+           processed,
+           dropped);
+}
+
+static void
 error_cb (GstBus           *bus,
           GstMessage       *msg,
           KasasaScreencast *self)
@@ -298,6 +398,7 @@ error_cb (GstBus           *bus,
   g_autofree gchar *debug_info = NULL;
 
   gst_message_parse_error (msg, &error, &debug_info);
+  dump_gstreamer_pipeline (self, "kasasa-error");
   g_warning ("Error received from element %s: %s",
              GST_OBJECT_NAME (msg->src), error->message);
   g_warning ("Debugging information: %s", debug_info ? debug_info : "none");
@@ -898,6 +999,17 @@ queue_preview_frame_update (KasasaScreencast *self,
 static void
 clear_gstreamer_pipeline (KasasaScreencast *self)
 {
+  if (self->pipeline != NULL && self->gst_trace)
+    {
+      dump_gstreamer_pipeline (self, "kasasa-stop");
+      g_debug ("Stopping GStreamer pipeline after %.1f ms (frames=%d)",
+               self->pipeline_started_at_usec != 0
+                 ? (gdouble) (g_get_monotonic_time ()
+                              - self->pipeline_started_at_usec) / 1000.0
+                 : 0.0,
+               g_atomic_int_get (&self->gst_frames_pushed));
+    }
+
   g_clear_object (&self->appsrc);
   clear_pending_preview_update (self);
   if (self->dmabuf_paintable != NULL)
@@ -926,6 +1038,10 @@ clear_gstreamer_pipeline (KasasaScreencast *self)
 
   if (self->picture != NULL)
     gtk_picture_set_paintable (self->picture, NULL);
+
+  self->pipeline_started_at_usec = 0;
+  self->first_frame_at_usec = 0;
+  g_atomic_int_set (&self->gst_frames_pushed, 0);
 }
 
 typedef struct
@@ -1406,6 +1522,20 @@ on_hypr_stream_frame (gpointer                     user_data,
     1,
     self->frame_rate);
   ret = gst_app_src_push_buffer (GST_APP_SRC (self->appsrc), buffer);
+  if (self->gst_trace && ret == GST_FLOW_OK)
+    {
+      gint frame_number = g_atomic_int_add (&self->gst_frames_pushed, 1) + 1;
+
+      if (frame_number == 1)
+        {
+          self->first_frame_at_usec = g_get_monotonic_time ();
+          g_debug ("GStreamer pipeline received first frame after %.1f ms",
+                   self->pipeline_started_at_usec != 0
+                     ? (gdouble) (self->first_frame_at_usec
+                                  - self->pipeline_started_at_usec) / 1000.0
+                     : 0.0);
+        }
+    }
   if (ret != GST_FLOW_OK && ret != GST_FLOW_FLUSHING)
     g_debug ("appsrc push returned %s", gst_flow_get_name (ret));
 }
@@ -1439,6 +1569,10 @@ show_hyprland_source (KasasaScreencast *self,
   self->stream_format = KASASA_HYPRLAND_STREAM_FORMAT_BGRX;
   self->direct_dmabuf_failed = FALSE;
   self->dmabuf_fallback_notified = FALSE;
+  self->gst_trace = gst_trace_enabled ();
+  self->pipeline_started_at_usec = 0;
+  self->first_frame_at_usec = 0;
+  g_atomic_int_set (&self->gst_frames_pushed, 0);
 
   if (self->pipeline != NULL || self->hypr_stream != NULL)
     {
@@ -1562,8 +1696,34 @@ show_hyprland_source (KasasaScreencast *self,
   gst_bus_add_signal_watch (self->bus);
   g_signal_connect (self->bus, "message::error", G_CALLBACK (error_cb), self);
   g_signal_connect (self->bus, "message::eos", G_CALLBACK (eos_cb), self);
+  if (self->gst_trace)
+    {
+      g_signal_connect (self->bus,
+                        "message::warning",
+                        G_CALLBACK (warning_cb),
+                        self);
+      g_signal_connect (self->bus,
+                        "message::state-changed",
+                        G_CALLBACK (state_changed_cb),
+                        self);
+      g_signal_connect (self->bus,
+                        "message::async-done",
+                        G_CALLBACK (async_done_cb),
+                        self);
+      g_signal_connect (self->bus,
+                        "message::qos",
+                        G_CALLBACK (qos_cb),
+                        self);
+    }
 
+  self->pipeline_started_at_usec = g_get_monotonic_time ();
   ret = gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+  if (self->gst_trace)
+    {
+      g_debug ("GStreamer pipeline PLAYING request returned %s",
+               gst_state_change_return_get_name (ret));
+      dump_gstreamer_pipeline (self, "kasasa-start");
+    }
   if (ret == GST_STATE_CHANGE_FAILURE)
     {
       return set_screencast_error (error,
@@ -1758,6 +1918,10 @@ kasasa_screencast_init (KasasaScreencast *self)
 {
   self->pipeline = NULL;
   self->bus = NULL;
+  self->gst_trace = FALSE;
+  self->pipeline_started_at_usec = 0;
+  self->first_frame_at_usec = 0;
+  self->gst_frames_pushed = 0;
   self->finished = TRUE;
   self->frame_rate = DEFAULT_SCREENCAST_FRAME_RATE;
   g_mutex_init (&self->preview_update_lock);

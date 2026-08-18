@@ -112,6 +112,13 @@ struct _KasasaHyprlandStream
   GThread *thread;
   gint stop_requested;
 
+  /* Diagnostic counters are written by the worker and read after join. */
+  gint64 started_at_usec;
+  gint64 first_frame_at_usec;
+  gint emitted_frames;
+  gint dropped_frames;
+  gint failed_frames;
+
   KasasaHyprlandStreamSource source;
   guint32 handle;
   gchar *output_name;
@@ -204,6 +211,44 @@ static gboolean
 stream_stop_requested (KasasaHyprlandStream *self)
 {
   return g_atomic_int_get (&self->stop_requested) != 0;
+}
+
+static const gchar *
+stream_source_name (KasasaHyprlandStreamSource source)
+{
+  return source == KASASA_HYPRLAND_STREAM_SOURCE_OUTPUT ? "monitor" : "window";
+}
+
+static void
+stream_record_emitted_frame (KasasaHyprlandStream *self)
+{
+  gint frame_number;
+
+  frame_number = g_atomic_int_add (&self->emitted_frames, 1) + 1;
+  if (frame_number == 1)
+    {
+      self->first_frame_at_usec = g_get_monotonic_time ();
+      g_debug ("Hyprland %s capture first frame after %.1f ms",
+               stream_source_name (self->source),
+               (gdouble) (self->first_frame_at_usec - self->started_at_usec)
+               / 1000.0);
+    }
+}
+
+static void
+stream_log_stage (KasasaHyprlandStream *self,
+                  const gchar          *stage,
+                  gint64                started_at_usec,
+                  gboolean              success,
+                  const GError         *error)
+{
+  g_debug ("Hyprland %s capture stage=%s result=%s elapsed=%.1f ms%s%s",
+           stream_source_name (self->source),
+           stage,
+           success ? "ok" : "failed",
+           (gdouble) (g_get_monotonic_time () - started_at_usec) / 1000.0,
+           error != NULL ? " error=" : "",
+           error != NULL ? error->message : "");
 }
 
 static gboolean
@@ -1664,6 +1709,7 @@ emit_frame (KasasaHyprlandStream *self)
                              self->frame_transform,
                              dmabuf_lease_release,
                              lease);
+      stream_record_emitted_frame (self);
       return;
     }
 
@@ -1700,6 +1746,7 @@ emit_frame (KasasaHyprlandStream *self)
                   format,
                   y_invert,
                   self->frame_transform);
+  stream_record_emitted_frame (self);
 }
 
 typedef enum
@@ -1800,8 +1847,14 @@ capture_one_window_frame (KasasaHyprlandStream  *self,
       dmabuf_result = ensure_dmabuf_buffer (self);
       if (dmabuf_result == ENSURE_DMABUF_BUSY)
         {
+          gint dropped_frames;
+
           /* GTK still owns all three capture buffers. Drop this capture
            * request instead of allocating an unbounded fourth buffer. */
+          dropped_frames = g_atomic_int_add (&self->dropped_frames, 1) + 1;
+          if (dropped_frames == 1 || dropped_frames % 30 == 0)
+            g_debug ("Hyprland window capture dropped frame: DMA-BUF pool is busy (%d total)",
+                     dropped_frames);
           stream_clear_frame (self);
           return TRUE;
         }
@@ -2074,10 +2127,21 @@ static gboolean
 stream_setup_dmabuf (KasasaHyprlandStream  *self,
                      GError               **error)
 {
+  const gchar *disable_dmabuf = g_getenv ("KASASA_DISABLE_DMABUF");
+
   if (self->source != KASASA_HYPRLAND_STREAM_SOURCE_WINDOW
       || self->dmabuf_frame_cb == NULL
       || self->linux_dmabuf == NULL)
     return TRUE;
+
+  /* Keep the override before feedback negotiation so fallback diagnostics
+   * do not depend on GPU allocator availability. */
+  if (disable_dmabuf != NULL && g_strcmp0 (disable_dmabuf, "0") != 0)
+    {
+      g_atomic_int_set (&self->dmabuf_disabled, TRUE);
+      g_info ("Hyprland DMA-BUF capture disabled by KASASA_DISABLE_DMABUF");
+      return TRUE;
+    }
 
   self->dmabuf_feedback =
     zwp_linux_dmabuf_v1_get_default_feedback (self->linux_dmabuf);
@@ -2148,6 +2212,7 @@ stream_capture_loop (KasasaHyprlandStream  *self,
           continue;
         }
 
+      g_atomic_int_inc (&self->failed_frames);
       if (stream_stop_requested (self) || !retryable)
         break;
 
@@ -2239,11 +2304,51 @@ stream_thread_func (gpointer data)
 {
   KasasaHyprlandStream *self = data;
   g_autoptr (GError) stream_error = NULL;
+  g_autofree gchar *source_detail = NULL;
+  gint64 stage_started_at_usec;
+  gboolean stage_ok;
 
-  if (stream_connect_registry (self, &stream_error)
-      && stream_setup_dmabuf (self, &stream_error)
-      && stream_setup_source (self, &stream_error))
+  self->started_at_usec = g_get_monotonic_time ();
+  source_detail = self->source == KASASA_HYPRLAND_STREAM_SOURCE_WINDOW
+                  ? g_strdup_printf ("handle=0x%08x", self->handle)
+                  : g_strdup_printf ("output=%s",
+                                     self->output_name != NULL
+                                       ? self->output_name
+                                       : "(unset)");
+  g_debug ("Hyprland %s capture started (%s)",
+           stream_source_name (self->source),
+           source_detail);
+
+  stage_started_at_usec = g_get_monotonic_time ();
+  stage_ok = stream_connect_registry (self, &stream_error);
+  stream_log_stage (self, "wayland-connect", stage_started_at_usec, stage_ok,
+                    stream_error);
+  if (!stage_ok)
+    goto finished;
+
+  stage_started_at_usec = g_get_monotonic_time ();
+  stage_ok = stream_setup_dmabuf (self, &stream_error);
+  stream_log_stage (self, "dmabuf-setup", stage_started_at_usec, stage_ok,
+                    stream_error);
+  if (!stage_ok)
+    goto finished;
+
+  stage_started_at_usec = g_get_monotonic_time ();
+  stage_ok = stream_setup_source (self, &stream_error);
+  stream_log_stage (self, "source-setup", stage_started_at_usec, stage_ok,
+                    stream_error);
+  if (stage_ok)
     stream_capture_loop (self, &stream_error);
+
+finished:
+  g_debug ("Hyprland %s capture loop finished after %.1f ms (frames=%d dropped=%d failures=%d)%s%s",
+           stream_source_name (self->source),
+           (gdouble) (g_get_monotonic_time () - self->started_at_usec) / 1000.0,
+           g_atomic_int_get (&self->emitted_frames),
+           g_atomic_int_get (&self->dropped_frames),
+           g_atomic_int_get (&self->failed_frames),
+           stream_error != NULL ? " error=" : "",
+           stream_error != NULL ? stream_error->message : "");
 
   stream_clear_wayland_resources (self);
 
@@ -2419,8 +2524,19 @@ kasasa_hyprland_stream_stop (KasasaHyprlandStream *self)
 
   if (self->thread != NULL)
     {
+      gint64 stop_started_at_usec = g_get_monotonic_time ();
+
+      g_debug ("Stopping Hyprland %s capture (frames=%d dropped=%d failures=%d)",
+               stream_source_name (self->source),
+               g_atomic_int_get (&self->emitted_frames),
+               g_atomic_int_get (&self->dropped_frames),
+               g_atomic_int_get (&self->failed_frames));
       g_thread_join (self->thread);
       self->thread = NULL;
+      g_debug ("Stopped Hyprland %s capture; join elapsed=%.1f ms total=%.1f ms",
+               stream_source_name (self->source),
+               (gdouble) (g_get_monotonic_time () - stop_started_at_usec) / 1000.0,
+               (gdouble) (g_get_monotonic_time () - self->started_at_usec) / 1000.0);
     }
 
   if (self->user_data_destroy != NULL && self->user_data != NULL)

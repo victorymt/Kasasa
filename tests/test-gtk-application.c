@@ -300,6 +300,49 @@ test_monitor_option_validation (void)
 }
 
 static void
+test_diagnostics_option (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  g_autoptr (GVariantDict) options = NULL;
+  GApplicationClass *app_class;
+
+  application_id = g_strdup_printf (
+    "io.github.kelvinnovais.Kasasa.Diagnostics%u",
+    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  app_class = G_APPLICATION_GET_CLASS (application);
+  options = g_variant_dict_new (NULL);
+  g_variant_dict_insert (options, "diagnostics", "b", TRUE);
+  g_assert_cmpint (
+    app_class->handle_local_options (G_APPLICATION (application), options),
+    ==,
+    0);
+}
+
+static void
+test_diagnostics_option_conflict (void)
+{
+  g_autofree gchar *application_id = NULL;
+  g_autoptr (KasasaApplication) application = NULL;
+  g_autoptr (GVariantDict) options = NULL;
+  GApplicationClass *app_class;
+
+  application_id = g_strdup_printf (
+    "io.github.kelvinnovais.Kasasa.DiagnosticsConflict%u",
+    (guint) getpid ());
+  application = kasasa_application_new (application_id);
+  app_class = G_APPLICATION_GET_CLASS (application);
+  options = g_variant_dict_new (NULL);
+  g_variant_dict_insert (options, "diagnostics", "b", TRUE);
+  g_variant_dict_insert (options, "list-monitors", "b", TRUE);
+  g_assert_cmpint (
+    app_class->handle_local_options (G_APPLICATION (application), options),
+    ==,
+    1);
+}
+
+static void
 test_monitor_option_forwards_active_monitor (void)
 {
   static const gchar script[] =
@@ -417,6 +460,10 @@ main (int argc, char **argv)
                    test_screencast_option_starts_screencast);
   g_test_add_func ("/gtk/application/monitor-option-validation",
                    test_monitor_option_validation);
+  g_test_add_func ("/gtk/application/diagnostics-option",
+                   test_diagnostics_option);
+  g_test_add_func ("/gtk/application/diagnostics-option-conflict",
+                   test_diagnostics_option_conflict);
   g_test_add_func ("/gtk/application/monitor-option-forwarding",
                    test_monitor_option_forwards_active_monitor);
   g_test_add_func ("/gtk/application/lifecycle", test_application_lifecycle);

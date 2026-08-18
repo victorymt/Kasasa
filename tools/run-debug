@@ -1,0 +1,102 @@
+#!/bin/sh
+
+set -eu
+
+usage ()
+{
+  cat >&2 <<'EOF'
+Usage: tools/run-debug [OPTIONS] [-- APP-OPTIONS]
+
+Run the uninstalled application inside Meson's development environment.
+
+Options:
+  --build-dir DIR  Use DIR instead of build
+  --logs            Enable GLib info/debug messages
+  --wayland         Enable Wayland client protocol logging
+  --gst             Enable GStreamer logging and pipeline dot files
+  --shm             Disable DMA-BUF and force the wl_shm fallback
+  --gdb             Run the application under gdb
+  -h, --help        Show this help
+EOF
+}
+
+build_dir=${KASASA_BUILD_DIR:-build}
+run_gdb=0
+run_logs=0
+run_wayland=0
+run_gst=0
+run_shm=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --build-dir)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      build_dir=$2
+      shift 2
+      ;;
+    --logs)
+      run_logs=1
+      shift
+      ;;
+    --wayland)
+      run_wayland=1
+      shift
+      ;;
+    --gst)
+      run_gst=1
+      shift
+      ;;
+    --shm)
+      run_shm=1
+      shift
+      ;;
+    --gdb)
+      run_gdb=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+[ -d "$build_dir" ] || {
+  echo "Build directory does not exist: $build_dir" >&2
+  echo "Run: meson setup $build_dir --buildtype=debug" >&2
+  exit 1
+}
+
+if [ "$run_logs" -eq 1 ]; then
+  export G_MESSAGES_DEBUG="${G_MESSAGES_DEBUG:-all}"
+fi
+
+if [ "$run_wayland" -eq 1 ]; then
+  export WAYLAND_DEBUG="${WAYLAND_DEBUG:-client}"
+fi
+
+if [ "$run_gst" -eq 1 ]; then
+  gst_dump_dir=${GST_DEBUG_DUMP_DOT_DIR:-"$build_dir/gst-debug"}
+  mkdir -p "$gst_dump_dir"
+  export GST_DEBUG_DUMP_DOT_DIR="$gst_dump_dir"
+  export GST_DEBUG="${GST_DEBUG:-3}"
+  export KASASA_GST_TRACE="${KASASA_GST_TRACE:-1}"
+fi
+
+if [ "$run_shm" -eq 1 ]; then
+  export KASASA_DISABLE_DMABUF=1
+fi
+
+if [ "$run_gdb" -eq 1 ]; then
+  exec meson devenv -C "$build_dir" gdb --args kasasa "$@"
+fi
+
+exec meson devenv -C "$build_dir" kasasa "$@"

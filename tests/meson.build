@@ -297,6 +297,7 @@ gtk_application_test = executable(
   link_with: [kasasa_query_lib, kasasa_cli_lib],
   dependencies: [
     adwaita_dep,
+    gstreamer_dep,
     json_glib_dep,
     wayland_client_dep,
     gbm_dep,
@@ -455,20 +456,31 @@ test(
 )
 
 if get_option('integration_tests')
-  wayland_integration_deps = [gtk_dep]
+  wayland_integration_sources = [
+    'test-wayland-integration.c',
+    '../src/kasasa-hyprland-stream.c',
+    '../src/kasasa-wayland-stubs.c',
+    hyprland_protocol_gen,
+  ]
+  wayland_integration_deps = [
+    gtk_dep,
+    json_glib_dep,
+    wayland_client_dep,
+    gbm_dep,
+    libdrm_dep,
+    rt_dep,
+  ]
   wayland_integration_c_args = []
   if gtk_layer_shell_dep.found()
-    wayland_integration_deps = [
-      gtk_layer_shell_dep,
-      gtk_dep,
-      wayland_client_dep,
-    ]
+    wayland_integration_deps += gtk_layer_shell_dep
     wayland_integration_c_args += '-DKASASA_HAVE_LAYER_SHELL'
   endif
 
   wayland_integration_test = executable(
     'test-wayland-integration',
-    'test-wayland-integration.c',
+    wayland_integration_sources,
+    include_directories: include_directories('../src', '.'),
+    link_with: kasasa_query_lib,
     dependencies: wayland_integration_deps,
     c_args: wayland_integration_c_args,
   )
@@ -477,6 +489,19 @@ if get_option('integration_tests')
     'Wayland/Hyprland session',
     wayland_integration_test,
     env: ['G_DEBUG=fatal-warnings'],
+    suite: 'integration',
+    timeout: 30,
+    is_parallel: false,
+  )
+
+  test(
+    'Wayland/Hyprland SHM fallback',
+    wayland_integration_test,
+    args: ['-p', '/integration/window-capture-smoke'],
+    env: [
+      'G_DEBUG=fatal-warnings',
+      'KASASA_DISABLE_DMABUF=1',
+    ],
     suite: 'integration',
     timeout: 30,
     is_parallel: false,

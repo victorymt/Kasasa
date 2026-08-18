@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include <glib/gi18n.h>
+#include <gst/gst.h>
 #include <stdio.h>
 
 #include "kasasa-application.h"
@@ -249,6 +250,8 @@ kasasa_application_activate (GApplication *app)
   self->start_with_screencast = FALSE;
 }
 
+static gchar *kasasa_application_diagnostics_text (void);
+
 static gint
 kasasa_application_handle_local_options (GApplication *app,
                                          GVariantDict *options)
@@ -264,6 +267,24 @@ kasasa_application_handle_local_options (GApplication *app,
   self->list_json = g_variant_dict_contains (options, "json");
   g_clear_pointer (&self->window_spec, g_free);
   g_clear_pointer (&self->monitor_spec, g_free);
+
+  if (g_variant_dict_contains (options, "diagnostics"))
+    {
+      if (self->start_with_screencast || self->list_windows
+          || self->list_monitors || self->list_json
+          || g_variant_dict_contains (options, "window")
+          || g_variant_dict_contains (options, "monitor"))
+        {
+          g_printerr ("--diagnostics cannot be combined with capture or listing options\n");
+          return KASASA_CLI_EXIT_ERROR;
+        }
+
+      {
+        g_autofree gchar *text = kasasa_application_diagnostics_text ();
+        g_print ("%s", text);
+      }
+      return KASASA_CLI_EXIT_OK;
+    }
 
   if (g_variant_dict_lookup (options, "window", "&s", &window_spec)
       && window_spec != NULL)
@@ -294,6 +315,83 @@ kasasa_application_handle_local_options (GApplication *app,
   return -1;
 }
 
+static gchar *
+kasasa_application_diagnostics_text (void)
+{
+  static const gchar *programs[] = { "hyprctl", "grim", "slurp", NULL };
+  const gchar *wayland_display;
+  const gchar *desktop;
+  const gchar *hyprland_signature;
+  const gchar *x_display;
+  const gchar *disable_dmabuf;
+  g_autoptr (GstElementFactory) paintable_sink = NULL;
+  guint gst_major, gst_minor, gst_micro, gst_nano;
+  GString *text;
+  guint i;
+
+  wayland_display = g_getenv ("WAYLAND_DISPLAY");
+  desktop = g_getenv ("XDG_CURRENT_DESKTOP");
+  hyprland_signature = g_getenv ("HYPRLAND_INSTANCE_SIGNATURE");
+  x_display = g_getenv ("DISPLAY");
+  disable_dmabuf = g_getenv ("KASASA_DISABLE_DMABUF");
+  gst_version (&gst_major, &gst_minor, &gst_micro, &gst_nano);
+  paintable_sink = gst_element_factory_find ("gtk4paintablesink");
+
+  text = g_string_new (NULL);
+  g_string_append_printf (text,
+                          "Kasasa %s\n"
+                          "Build environment:\n"
+                          "  source: meson\n"
+                          "  wayland-protocols: >= 1.35\n"
+                          "Runtime environment:\n"
+                          "  WAYLAND_DISPLAY: %s\n"
+                          "  XDG_CURRENT_DESKTOP: %s\n"
+                          "  HYPRLAND_INSTANCE_SIGNATURE: %s\n"
+                          "  DISPLAY: %s\n"
+                          "  KASASA_DISABLE_DMABUF: %s\n"
+                          "GStreamer: %u.%u.%u.%u\n"
+                          "  gtk4paintablesink: %s\n",
+                          PACKAGE_VERSION,
+                          wayland_display != NULL ? wayland_display : "(unset)",
+                          desktop != NULL ? desktop : "(unset)",
+                          hyprland_signature != NULL ? "set" : "(unset)",
+                          x_display != NULL ? x_display : "(unset)",
+                          disable_dmabuf != NULL ? disable_dmabuf : "(unset)",
+                          gst_major,
+                          gst_minor,
+                          gst_micro,
+                          gst_nano,
+                          paintable_sink != NULL ? "available" : "missing");
+
+  g_string_append (text, "External tools:\n");
+  for (i = 0; programs[i] != NULL; i++)
+    {
+      g_autofree gchar *path = g_find_program_in_path (programs[i]);
+
+      g_string_append_printf (text,
+                              "  %s: %s\n",
+                              programs[i],
+                              path != NULL ? path : "missing");
+    }
+
+#ifdef KASASA_HAVE_LAYER_SHELL
+  g_string_append (text, "GTK layer shell: compiled in\n");
+#else
+  g_string_append (text, "GTK layer shell: not compiled in\n");
+#endif
+
+  return g_string_free (text, FALSE);
+}
+
+static int
+kasasa_application_print_diagnostics (GApplicationCommandLine *cmdline)
+{
+  g_autofree gchar *text = kasasa_application_diagnostics_text ();
+
+  g_application_command_line_print (cmdline, "%s", text);
+  return KASASA_CLI_EXIT_OK;
+}
+
 static int
 kasasa_application_command_line (GApplication            *app,
                                  GApplicationCommandLine *cmdline)
@@ -307,11 +405,28 @@ kasasa_application_command_line (GApplication            *app,
   gboolean list_windows;
   gboolean list_monitors;
   gboolean list_json;
+  gboolean diagnostics;
 
   start_with_screencast = g_variant_dict_contains (options, "screencast");
   list_windows = g_variant_dict_contains (options, "list-windows");
   list_monitors = g_variant_dict_contains (options, "list-monitors");
   list_json = g_variant_dict_contains (options, "json");
+  diagnostics = g_variant_dict_contains (options, "diagnostics");
+
+  if (diagnostics)
+    {
+      if (start_with_screencast || list_windows || list_monitors || list_json
+          || g_variant_dict_contains (options, "window")
+          || g_variant_dict_contains (options, "monitor"))
+        {
+          g_application_command_line_printerr (
+            cmdline,
+            "--diagnostics cannot be combined with capture or listing options\n");
+          return KASASA_CLI_EXIT_ERROR;
+        }
+
+      return kasasa_application_print_diagnostics (cmdline);
+    }
 
   g_variant_dict_lookup (options, "window", "&s", &window_spec);
   g_variant_dict_lookup (options, "monitor", "&s", &monitor_spec);
@@ -510,6 +625,15 @@ kasasa_application_init (KasasaApplication *self)
       .arg = G_OPTION_ARG_NONE,
       .arg_data = NULL,
       .description = _("List capturable monitors (Hyprland) and exit"),
+      .arg_description = NULL,
+    },
+    {
+      .long_name = "diagnostics",
+      .short_name = 0,
+      .flags = G_OPTION_FLAG_NONE,
+      .arg = G_OPTION_ARG_NONE,
+      .arg_data = NULL,
+      .description = _("Print runtime diagnostics and exit"),
       .arg_description = NULL,
     },
     {

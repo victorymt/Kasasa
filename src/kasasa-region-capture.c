@@ -38,6 +38,7 @@ run_subprocess (const gchar * const *argv,
   GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDERR_PIPE;
   g_autoptr (GSubprocess) subprocess = NULL;
   g_autofree gchar *stderr_text = NULL;
+  gint64 started_at_usec = g_get_monotonic_time ();
   gulong cancel_id = 0;
 
   if (exit_status != NULL)
@@ -48,7 +49,15 @@ run_subprocess (const gchar * const *argv,
 
   subprocess = g_subprocess_newv (argv, flags, error);
   if (subprocess == NULL)
-    return FALSE;
+    {
+      g_debug ("Region capture stage=%s result=spawn-failed elapsed=%.1f ms error=%s",
+               argv[0],
+               (gdouble) (g_get_monotonic_time () - started_at_usec) / 1000.0,
+               error != NULL && *error != NULL
+                 ? (*error)->message
+                 : "unknown error");
+      return FALSE;
+    }
 
   if (cancellable != NULL)
     cancel_id = g_cancellable_connect (cancellable,
@@ -65,6 +74,15 @@ run_subprocess (const gchar * const *argv,
     {
       if (cancel_id != 0)
         g_cancellable_disconnect (cancellable, cancel_id);
+      g_debug ("Region capture stage=%s result=%s elapsed=%.1f ms error=%s",
+               argv[0],
+               cancellable != NULL && g_cancellable_is_cancelled (cancellable)
+                 ? "cancelled"
+                 : "communication-failed",
+               (gdouble) (g_get_monotonic_time () - started_at_usec) / 1000.0,
+               error != NULL && *error != NULL
+                 ? (*error)->message
+                 : "unknown error");
       return FALSE;
     }
 
@@ -74,22 +92,44 @@ run_subprocess (const gchar * const *argv,
   if (!g_subprocess_get_successful (subprocess))
     {
       g_autofree gchar *detail = g_strdup (stderr_text);
+      g_autofree gchar *status = NULL;
 
-      if (exit_status != NULL && g_subprocess_get_if_exited (subprocess))
-        *exit_status = g_subprocess_get_exit_status (subprocess);
+      if (g_subprocess_get_if_exited (subprocess))
+        {
+          gint status_code = g_subprocess_get_exit_status (subprocess);
+
+          if (exit_status != NULL)
+            *exit_status = status_code;
+          status = g_strdup_printf ("exit status %d", status_code);
+        }
+      else if (g_subprocess_get_if_signaled (subprocess))
+        status = g_strdup_printf ("signal %d",
+                                  g_subprocess_get_term_sig (subprocess));
+      else
+        status = g_strdup ("unknown status");
 
       if (detail != NULL)
         g_strstrip (detail);
+      g_debug ("Region capture stage=%s result=failed status=%s elapsed=%.1f ms%s%s",
+               argv[0],
+               status,
+               (gdouble) (g_get_monotonic_time () - started_at_usec) / 1000.0,
+               detail != NULL && *detail != '\0' ? " stderr=" : "",
+               detail != NULL ? detail : "");
       g_set_error (error,
                    G_IO_ERROR,
                    G_IO_ERROR_FAILED,
-                   "%s failed%s%s",
+                   "%s failed with %s%s%s",
                    argv[0],
+                   status,
                    detail != NULL && *detail != '\0' ? ": " : "",
                    detail != NULL ? detail : "");
       return FALSE;
     }
 
+  g_debug ("Region capture stage=%s result=ok elapsed=%.1f ms",
+           argv[0],
+           (gdouble) (g_get_monotonic_time () - started_at_usec) / 1000.0);
   return TRUE;
 }
 
