@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kasasa\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-18 13:05+0800\n"
+"POT-Creation-Date: 2026-08-18 13:28+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -58,31 +58,23 @@ msgstr ""
 msgid "A keyboard shortcut"
 msgstr ""
 
-#. translators: do not include the tags <code></code>
-#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:37
+#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:36
 msgid ""
-"On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom "
-"Shortcuts. There you can set a shortcut to run <code>kasasa</code> "
+"Kasasa is designed for Hyprland. Region screenshots require <code>slurp</"
+"code> and <code>grim</code>; live window and monitor previews use Hyprland's "
+"Wayland capture protocols."
 msgstr ""
 
-#. translators: replace "&lt;" with < and "&apos;" with '
-#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:42
-msgid ""
-"Note: On GNOME versions < 46, a dialog will appear to set up and take the "
-"screenshot, instead of directly using the GNOME's screenshoter; this may be "
-"inconvenient."
-msgstr ""
-
-#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:52
+#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:47
 msgid "Main window"
 msgstr ""
 
-#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:56
+#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:51
 msgid "Kasasa can become a window miniature"
 msgstr ""
 
 #. translators: "its" refer to Kasasa window
-#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:61
+#: data/io.github.kelvinnovais.Kasasa.metainfo.xml.in:56
 msgid "Or decrease its opacity"
 msgstr ""
 
@@ -616,6 +608,37 @@ msgstr ""
 
 #: src/kasasa-screenshot.c:124
 msgid "No screenshot file is available"
+msgstr ""
+
+#: src/kasasa-region-capture.c:438
+msgid ""
+"GTK Layer Shell could not initialize; verify that it is linked before "
+"libwayland-client"
+msgstr ""
+
+#: src/kasasa-region-capture.c:444
+msgid "The compositor does not support Layer Shell"
+msgstr ""
+
+#: src/kasasa-region-capture.c:477
+msgid "No display is available for the frozen frame"
+msgstr ""
+
+#: src/kasasa-region-capture.c:499
+msgid "The frozen frame did not cover any display"
+msgstr ""
+
+#: src/kasasa-region-capture.c:551 src/kasasa-region-capture.c:692
+#: src/kasasa-region-capture.c:762
+msgid "Region capture cancelled"
+msgstr ""
+
+#: src/kasasa-region-capture.c:556
+msgid "Timed out while presenting the frozen frame"
+msgstr ""
+
+#: src/kasasa-region-capture.c:724
+msgid "Region selection cancelled"
 msgstr ""
 
 #: src/kasasa-preferences.ui:12
