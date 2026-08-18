@@ -468,7 +468,9 @@ kasasa_content_container_wipe_content (KasasaContentContainer *self)
 
   n_pages = adw_carousel_get_n_pages (self->carousel);
 
-  adw_carousel_set_interactive (self->carousel, FALSE);
+  /* Keep the lock counter in sync with the widget state.  Wiping is a
+   * long-lived operation, so intentionally leave this lock held. */
+  kasasa_content_container_carousel_set_interactive (self, FALSE);
 
   // Request finishing content from the last to the first page of the carousel.
   // Pictures are only deleted if the trash_button is toggled
@@ -1846,6 +1848,14 @@ on_remove_content_clicked (GtkButton *button,
   GtkWidget *current_content = get_current_content (self);
   GtkWidget *neighbor_content = NULL;
 
+  /* The remove action is disabled for a single page, but keep the handler
+   * robust when it is invoked programmatically as well. */
+  if (n_pages < 2 || current_content == NULL)
+    {
+      kasasa_content_container_update_toolbar_sensibility (self);
+      return;
+    }
+
   kasasa_content_container_carousel_set_interactive (self, FALSE);
 
   for (guint i = 0; i < n_pages; i++)
@@ -1894,6 +1904,11 @@ on_remove_content_clicked (GtkButton *button,
   adw_carousel_scroll_to (self->carousel, neighbor_content, TRUE);
 
   kasasa_content_container_update_toolbar_sensibility (self);
+
+  /* Removing a page does not reliably emit page-changed.  Resize explicitly
+   * against the neighbor after fixing current_page_index so first/last page
+   * removal cannot leave the window at the deleted page's dimensions. */
+  kasasa_content_container_request_window_resize (self);
 
   kasasa_content_container_carousel_set_interactive (self, TRUE);
 }

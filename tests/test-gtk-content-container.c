@@ -623,25 +623,47 @@ test_removes_first_middle_and_last (Fixture *fixture,
   GtkWidget *last = append_screenshot (fixture);
 
   select_page (fixture, middle);
+  switch_resize_calls = 0;
   g_signal_emit_by_name (fixture->remove_button, "clicked");
   dispatch_pending_sources ();
+  g_assert_cmpuint (switch_resize_calls, >, 0);
+  g_assert_true (adw_carousel_get_interactive (fixture->carousel));
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
   g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 3);
   g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 0) == first);
   g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 1) == third);
   g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 2) == last);
 
   select_page (fixture, last);
+  switch_resize_calls = 0;
   g_signal_emit_by_name (fixture->remove_button, "clicked");
   dispatch_pending_sources ();
+  g_assert_cmpuint (switch_resize_calls, >, 0);
+  g_assert_true (adw_carousel_get_interactive (fixture->carousel));
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
   g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 2);
   g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 0) == first);
   g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 1) == third);
 
   select_page (fixture, first);
+  switch_resize_calls = 0;
+  g_signal_emit_by_name (fixture->remove_button, "clicked");
+  dispatch_pending_sources ();
+  g_assert_cmpuint (switch_resize_calls, >, 0);
+  g_assert_true (adw_carousel_get_interactive (fixture->carousel));
+  g_assert_true (gtk_widget_get_sensitive (fixture->toolbar_overlay));
+  g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 1);
+  g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 0) == third);
+  g_assert_false (gtk_widget_get_sensitive (fixture->remove_button));
+
+  /* The button is insensitive here, but the callback must remain harmless if
+   * a stale activation reaches it while the carousel has one page. */
+  switch_resize_calls = 0;
   g_signal_emit_by_name (fixture->remove_button, "clicked");
   dispatch_pending_sources ();
   g_assert_cmpuint (adw_carousel_get_n_pages (fixture->carousel), ==, 1);
-  g_assert_true (adw_carousel_get_nth_page (fixture->carousel, 0) == third);
+  g_assert_cmpuint (switch_resize_calls, ==, 0);
+  g_assert_true (adw_carousel_get_interactive (fixture->carousel));
   g_assert_false (gtk_widget_get_sensitive (fixture->remove_button));
 }
 
