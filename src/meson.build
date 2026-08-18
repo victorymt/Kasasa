@@ -62,6 +62,7 @@ kasasa_sources = [
   'kasasa-screencast.c',
   'kasasa-crop-paintable.c',
   'kasasa-dmabuf-paintable.c',
+  'kasasa-capture-controller.c',
   'kasasa-content-container.c',
   'kasasa-window-query.c',
   'kasasa-window-picker.c',

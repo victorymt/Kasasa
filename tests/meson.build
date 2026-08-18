@@ -339,6 +339,7 @@ gtk_content_container_test = executable(
   'test-gtk-content-container',
   [
     'test-gtk-content-container.c',
+    '../src/kasasa-capture-controller.c',
     '../src/kasasa-content-container.c',
     '../src/kasasa-region-capture.c',
     '../src/kasasa-content.c',
@@ -393,6 +394,7 @@ gtk_window_test = executable(
     '../src/kasasa-window.c',
     '../src/kasasa-window-layout.c',
     '../src/kasasa-preferences.c',
+    '../src/kasasa-capture-controller.c',
     '../src/kasasa-content-container.c',
     '../src/kasasa-region-capture.c',
     '../src/kasasa-content.c',

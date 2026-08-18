@@ -23,8 +23,8 @@
 
 #include <adwaita.h>
 
+#include "kasasa-capture-controller.h"
 #include "kasasa-content-host.h"
-#include "kasasa-window-picker.h"
 
 G_BEGIN_DECLS
 
@@ -33,37 +33,6 @@ G_BEGIN_DECLS
 #define KASASA_TYPE_CONTENT_CONTAINER (kasasa_content_container_get_type ())
 
 G_DECLARE_FINAL_TYPE (KasasaContentContainer, kasasa_content_container, KASASA, CONTENT_CONTAINER, AdwBreakpointBin)
-
-typedef struct
-{
-  gboolean (*screenshot_available) (void);
-  gboolean (*screencast_available) (void);
-  gboolean (*present_picker) (GtkWindow                  *parent,
-                              const gchar                *title,
-                              KasasaWindowPickerCallback  callback,
-                              gpointer                    user_data,
-                              GDestroyNotify              destroy,
-                              GError                    **error);
-  void (*capture_screenshot_async) (const KasasaWindowClient *client,
-                                    GCancellable             *cancellable,
-                                    GAsyncReadyCallback       callback,
-                                    gpointer                  user_data);
-  gchar *(*capture_screenshot_finish) (GAsyncResult *result,
-                                       GError      **error);
-  gboolean (*window_handle_from_address) (const gchar *address,
-                                          guint32     *handle,
-                                          GError     **error);
-} KasasaNativeCaptureOps;
-
-typedef struct
-{
-  gboolean (*available) (void);
-  void (*capture_async) (GCancellable        *cancellable,
-                         GAsyncReadyCallback  callback,
-                         gpointer             user_data);
-  gchar *(*capture_finish) (GAsyncResult *result,
-                            GError      **error);
-} KasasaRegionCaptureOps;
 
 KasasaContentContainer *kasasa_content_container_new (void);
 gboolean kasasa_content_container_append_screenshot (KasasaContentContainer *cc,
