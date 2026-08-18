@@ -77,6 +77,9 @@ struct _KasasaContentContainer
   gboolean                 delayed_screenshot_pending;
   KasasaNativeCaptureOps     native_capture_ops;
   KasasaRegionCaptureOps     region_capture_ops;
+  KasasaContentResizeFunc    resize_callback;
+  gpointer                   resize_data;
+  GDestroyNotify             resize_data_destroy;
 };
 
 typedef enum
@@ -337,30 +340,26 @@ request_window_resize (KasasaContentContainer *self,
                        gboolean                for_zoom,
                        gboolean                continuous)
 {
-  KasasaWindow *window = NULL;
   GtkWidget *content = NULL;
   gint new_height, new_width;
 
   g_return_val_if_fail (KASASA_IS_CONTENT_CONTAINER (self), FALSE);
 
-  window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   content = get_current_content (self);
-  if (!KASASA_IS_WINDOW (window) || !KASASA_IS_CONTENT (content))
+  if (!KASASA_IS_CONTENT (content) || self->resize_callback == NULL)
     return FALSE;
 
   kasasa_content_get_dimensions (KASASA_CONTENT (content),
                                  &new_height,
                                  &new_width);
 
-  if (for_zoom)
-    return kasasa_window_resize_window_scaling_for_zoom (
-      window,
-      (gdouble) new_height,
-      (gdouble) new_width,
-      continuous);
-
-  return kasasa_window_resize_window_scaling (
-    window, (gdouble) new_height, (gdouble) new_width);
+  return self->resize_callback (
+    self->resize_data,
+    (gdouble) new_height,
+    (gdouble) new_width,
+    KASASA_SWITCH_RESIZE_FIT,
+    for_zoom,
+    continuous);
 }
 
 gboolean
@@ -594,6 +593,24 @@ kasasa_content_container_set_region_capture_ops (
   self->region_capture_ops = ops != NULL
                              ? *ops
                              : default_region_capture_ops;
+}
+
+void
+kasasa_content_container_set_resize_handler (
+  KasasaContentContainer *self,
+  KasasaContentResizeFunc callback,
+  gpointer                user_data,
+  GDestroyNotify          destroy)
+{
+  g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
+  g_return_if_fail (callback != NULL || user_data == NULL);
+
+  if (self->resize_data_destroy != NULL)
+    self->resize_data_destroy (self->resize_data);
+
+  self->resize_callback = callback;
+  self->resize_data = callback != NULL ? user_data : NULL;
+  self->resize_data_destroy = callback != NULL ? destroy : NULL;
 }
 
 static void
@@ -1303,10 +1320,13 @@ on_screencast_new_dimension (KasasaScreencast *screencast,
 
 
   if (current_content == GTK_WIDGET (screencast)
-      && !miniaturized)
-    kasasa_window_resize_window_scaling (window,
-                                         (gdouble) new_height,
-                                         (gdouble) new_width);
+      && !miniaturized && self->resize_callback != NULL)
+    self->resize_callback (self->resize_data,
+                           (gdouble) new_height,
+                           (gdouble) new_width,
+                           KASASA_SWITCH_RESIZE_FIT,
+                           FALSE,
+                           FALSE);
 }
 
 static guint
@@ -1968,12 +1988,15 @@ on_page_changed (AdwCarousel *carousel,
                                  &new_height,
                                  &new_width);
 
-  kasasa_window_resize_for_content_switch (
-    window,
-    (gdouble) new_height,
-    (gdouble) new_width,
-    (KasasaSwitchResizeMode) g_settings_get_uint (
-      self->settings, "image-switch-resize-mode"));
+  if (self->resize_callback != NULL)
+    self->resize_callback (
+      self->resize_data,
+      (gdouble) new_height,
+      (gdouble) new_width,
+      (KasasaSwitchResizeMode) g_settings_get_uint (
+        self->settings, "image-switch-resize-mode"),
+      FALSE,
+      FALSE);
 }
 
 static void
@@ -2126,6 +2149,7 @@ kasasa_content_container_dispose (GObject *object)
     g_cancellable_cancel (self->region_capture_cancellable);
   g_clear_object (&self->region_capture_cancellable);
   g_clear_object (&self->settings);
+  kasasa_content_container_set_resize_handler (self, NULL, NULL, NULL);
 
   /* Finishing a carousel animation during template disposal can emit
    * page-changed after the container has already been finalized. */
@@ -2187,6 +2211,9 @@ kasasa_content_container_init (KasasaContentContainer *self)
   self->delayed_screenshot_client = NULL;
   self->native_capture_ops = default_native_capture_ops;
   self->region_capture_ops = default_region_capture_ops;
+  self->resize_callback = NULL;
+  self->resize_data = NULL;
+  self->resize_data_destroy = NULL;
   self->carousel_interaction_locks = 0;
   self->current_page_index = GTK_INVALID_LIST_POSITION;
   self->native_capture_request_pending = FALSE;

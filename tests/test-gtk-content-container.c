@@ -82,6 +82,23 @@ static guint fake_native_picker_calls;
 static guint fake_native_capture_calls;
 static guint switch_resize_calls;
 static KasasaSwitchResizeMode last_switch_resize_mode;
+static gboolean last_resize_for_zoom;
+static gboolean last_resize_continuous;
+
+static gboolean
+fake_resize_request (gpointer               user_data,
+                     gdouble                new_height,
+                     gdouble                new_width,
+                     KasasaSwitchResizeMode mode,
+                     gboolean               for_zoom,
+                     gboolean               continuous)
+{
+  switch_resize_calls++;
+  last_switch_resize_mode = mode;
+  last_resize_for_zoom = for_zoom;
+  last_resize_continuous = continuous;
+  return TRUE;
+}
 
 static void
 fake_take_screenshot (GCancellable        *cancellable,
@@ -379,6 +396,8 @@ fixture_setup (Fixture *fixture,
                                       KASASA_SWITCH_RESIZE_FIT));
   switch_resize_calls = 0;
   last_switch_resize_mode = KASASA_SWITCH_RESIZE_FIT;
+  last_resize_for_zoom = FALSE;
+  last_resize_continuous = FALSE;
 
   fd = g_file_open_tmp ("kasasa-container-test-XXXXXX.png",
                         &fixture->image_path,
@@ -396,6 +415,10 @@ fixture_setup (Fixture *fixture,
 
   fixture->window = GTK_WINDOW (gtk_window_new ());
   fixture->container = kasasa_content_container_new ();
+  kasasa_content_container_set_resize_handler (fixture->container,
+                                               fake_resize_request,
+                                               fixture,
+                                               NULL);
   gtk_window_set_child (fixture->window, GTK_WIDGET (fixture->container));
 
   fixture->carousel = ADW_CAROUSEL (
@@ -693,6 +716,29 @@ test_page_switch_resize_mode (Fixture *fixture,
   g_assert_cmpint (last_switch_resize_mode,
                    ==,
                    KASASA_SWITCH_RESIZE_KEEP_HEIGHT);
+}
+
+static void
+test_explicit_resize_requests_use_host_handler (Fixture *fixture,
+                                                gconstpointer user_data)
+{
+  append_screenshot (fixture);
+
+  switch_resize_calls = 0;
+  g_assert_true (kasasa_content_container_request_window_resize (
+    fixture->container));
+  g_assert_cmpuint (switch_resize_calls, ==, 1);
+  g_assert_cmpint (last_switch_resize_mode, ==, KASASA_SWITCH_RESIZE_FIT);
+  g_assert_false (last_resize_for_zoom);
+  g_assert_false (last_resize_continuous);
+
+  switch_resize_calls = 0;
+  g_assert_true (kasasa_content_container_request_zoom_resize (
+    fixture->container, TRUE));
+  g_assert_cmpuint (switch_resize_calls, ==, 1);
+  g_assert_cmpint (last_switch_resize_mode, ==, KASASA_SWITCH_RESIZE_FIT);
+  g_assert_true (last_resize_for_zoom);
+  g_assert_true (last_resize_continuous);
 }
 
 static void
@@ -1041,6 +1087,10 @@ main (int argc, char **argv)
   g_test_add ("/gtk/content-container/page-switch-resize-mode",
               Fixture, NULL, fixture_setup,
               test_page_switch_resize_mode, fixture_teardown);
+  g_test_add ("/gtk/content-container/explicit-resize-handler",
+              Fixture, NULL, fixture_setup,
+              test_explicit_resize_requests_use_host_handler,
+              fixture_teardown);
   g_test_add ("/gtk/content-container/wipe",
               Fixture, NULL, fixture_setup,
               test_wipe_removes_every_page, fixture_teardown);

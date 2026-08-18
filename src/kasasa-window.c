@@ -29,9 +29,6 @@
 #include "kasasa-window.h"
 #include "kasasa-zoom.h"
 
-// Defined on GSchema and preferences
-#define MIN_OCCUPY_SCREEN 0.1
-
 /* Wait long enough to cover the initial Wayland configure/CSD correction.
  * A tick callback keeps frames flowing while the otherwise static pin is
  * transparent. */
@@ -364,10 +361,6 @@ monitor_size (GtkWidget *widget,
   return FALSE;
 }
 
-// Compute the window size
-// Based on:
-// https://gitlab.gnome.org/GNOME/Incubator/showtime/-/blob/main/showtime/window.py?ref_type=heads#L836
-// https://gitlab.gnome.org/GNOME/loupe/-/blob/4ca5f9e03d18667db5d72325597cebc02887777a/src/widgets/image/rendering.rs#L151
 static gboolean
 compute_size (KasasaWindow *self,
               gdouble *nat_width,
@@ -375,180 +368,44 @@ compute_size (KasasaWindow *self,
               const gint content_height,
               const gint content_width)
 {
-  gdouble image_width, image_height, image_area, max_width, max_height,
-      monitor_width, monitor_height, monitor_area,
-      occupy_area_factor, size_scale, target_scale, hidpi_scale, max_scale,
-      content_scale,
-      min_zoom, max_zoom, zoom_lower, zoom_upper;
-
-  g_autoptr (GSettings) settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
-
-  if (content_height <= 0 || content_width <= 0)
-    {
-      g_warning ("Content width or height must be > 0");
-      return TRUE;
-    }
+  gdouble monitor_width;
+  gdouble monitor_height;
+  gdouble hidpi_scale;
+  gdouble max_scale;
+  gdouble content_scale;
+  KasasaWindowLayoutInput input = { 0 };
+  KasasaWindowLayoutOutput output = { 0 };
 
   if (monitor_size (GTK_WIDGET (self), &monitor_width, &monitor_height))
-    {
-      g_warning ("Couldn't get monitor size");
-      return TRUE;
-    }
-
-  if (!isfinite (monitor_width) || !isfinite (monitor_height)
-      || monitor_width <= 0.0 || monitor_height <= 0.0)
-    {
-      g_warning ("Monitor width and height must be finite and > 0");
-      return TRUE;
-    }
+    return TRUE;
 
   if (scaling (GTK_WIDGET (self), &hidpi_scale))
-    {
-      g_warning ("Couldn't get HiDPI scale");
-      return TRUE;
-    }
+    return TRUE;
 
-  if (!isfinite (hidpi_scale) || hidpi_scale <= 0.0)
-    {
-      g_warning ("HiDPI scale must be finite and > 0");
-      return TRUE;
-    }
-
-  // If the user has different scales for the monitors and the current scale is
-  // less than the max scale, divide the image dimentions by the max scale. This
-  // is needed because the screenshot size follows the max scale
+  /* The screenshot follows the highest monitor scale when monitors differ. */
   content_scale = hidpi_scale;
   if (has_different_scalings (&max_scale))
-    {
-      if (!isfinite (max_scale) || max_scale <= 0.0)
-        {
-          g_warning ("Maximum monitor scale must be finite and > 0");
-          return TRUE;
-        }
+    content_scale = max_scale;
 
-      content_scale = max_scale;
-    }
+  input.content_width = content_width;
+  input.content_height = content_height;
+  input.monitor_width = monitor_width;
+  input.monitor_height = monitor_height;
+  input.content_scale = content_scale;
+  input.occupy_screen = g_settings_get_int (self->settings, "occupy-screen");
+  input.zoom_factor = self->zoom_factor;
 
-  if (!kasasa_zoom_get_logical_content_size (content_width,
-                                             content_height,
-                                             content_scale,
-                                             &image_width,
-                                             &image_height))
+  if (!kasasa_window_layout_compute (&input, &output))
     {
-      g_warning ("Scaled content width and height must be finite and > 0");
+      g_warning ("Couldn't compute a valid window size");
       return TRUE;
     }
 
-  // AREAS
-  monitor_area = monitor_width * monitor_height;
-  image_area = image_height * image_width;
-
-  occupy_area_factor = g_settings_get_int (settings, "occupy-screen") / 100.0;
-  if (!isfinite (occupy_area_factor) || occupy_area_factor <= 0.0)
-    {
-      g_warning ("Screen occupation factor must be finite and > 0");
-      return TRUE;
-    }
-
-  // factor for width and height that will achieve the desired area
-  // occupation derived from:
-  // monitor_area * occupy_area_factor ==
-  //   (image_width * size_scale) * (image_height * size_scale)
-  size_scale = sqrt (monitor_area / image_area * occupy_area_factor);
-  if (!isfinite (size_scale))
-    {
-      g_warning ("Couldn't compute a finite content scale");
-      return TRUE;
-    }
-  g_debug ("size_scale @ %d: %f", __LINE__, size_scale);
-  // ensure that size_scale is not ~ 0 (if image is too big, size_scale can reach 0)
-  size_scale = MAX (size_scale, MIN_OCCUPY_SCREEN);
-  g_debug ("size_scale @ %d: %f", __LINE__, size_scale);
-  // ensure that we never increase image size
-  target_scale = MIN (1, size_scale);
-  g_debug ("target_scale @ %d: %f", __LINE__, target_scale);
-  *nat_width = image_width * target_scale;
-  *nat_height = image_height * target_scale;
-  g_debug ("[nat_width, nat_height] @ %d: [%f, %f]",
-           __LINE__, *nat_width, *nat_height);
-
-  // Scale down if targeted occupation does not fit horizontally
-  // Add some margin to not touch corners
-  max_width = MAX (1.0, monitor_width /*- 20*/);
-  if (*nat_width > max_width)
-    {
-      *nat_width = max_width;
-      *nat_height = image_height * (*nat_width) / image_width;
-      g_debug ("[nat_width, nat_height] @ %d: [%f, %f]",
-               __LINE__, *nat_width, *nat_height);
-    }
-
-  // Same for vertical size. The header bar overlays the screenshot, so only
-  // reserve space for the desktop shell here.
-  max_height = MAX (1.0, monitor_height - 35 /*+ 20*/);
-  if (*nat_height > max_height)
-    {
-      *nat_height = max_height;
-      *nat_width = image_width * (*nat_height) / image_height;
-      g_debug ("[nat_width, nat_height] @ %d: [%f, %f]",
-               __LINE__, *nat_width, *nat_height);
-    }
-
-  // Clamp the stored zoom to values that can actually change the window. This
-  // prevents invisible zoom from accumulating at screen/minimum-size limits.
-  min_zoom = MAX (WINDOW_MIN_WIDTH / *nat_width,
-                  WINDOW_MIN_HEIGHT / *nat_height);
-  max_zoom = MIN (max_width / *nat_width,
-                  max_height / *nat_height);
-  zoom_lower = MAX (WINDOW_ZOOM_MIN, min_zoom);
-  zoom_upper = MIN (WINDOW_ZOOM_MAX, max_zoom);
-  if (zoom_lower > zoom_upper)
-    zoom_lower = zoom_upper;
-
-  self->zoom_min = zoom_lower;
-  self->zoom_max = zoom_upper;
-  self->zoom_factor = CLAMP (self->zoom_factor, zoom_lower, zoom_upper);
-
-  // User zoom is relative to the auto-fitted size (occupy-screen base)
-  *nat_width *= self->zoom_factor;
-  *nat_height *= self->zoom_factor;
-  g_debug ("[nat_width, nat_height] after zoom (%.2f) @ %d: [%f, %f]",
-           self->zoom_factor, __LINE__, *nat_width, *nat_height);
-
-  // Re-clamp to the monitor after zoom so the window never exceeds the screen
-  if (*nat_width > max_width)
-    {
-      *nat_height = *nat_height * (max_width / *nat_width);
-      *nat_width = max_width;
-    }
-  if (*nat_height > max_height)
-    {
-      *nat_width = *nat_width * (max_height / *nat_height);
-      *nat_height = max_height;
-    }
-
-  if (!isfinite (*nat_width) || !isfinite (*nat_height)
-      || *nat_width <= 0.0 || *nat_height <= 0.0)
-    {
-      g_warning ("Computed window width and height must be finite and > 0");
-      return TRUE;
-    }
-
-  *nat_width = round (*nat_width);
-  *nat_height = round (*nat_height);
-  g_debug ("[nat_width, nat_height] @ %d: [%f, %f]",
-           __LINE__, *nat_width, *nat_height);
-
-  // Ensure that the scaled image isn't smaller than the min window size
-  *nat_width = MAX (WINDOW_MIN_WIDTH, *nat_width);
-  *nat_height = MAX (WINDOW_MIN_HEIGHT, *nat_height);
-
-  g_info ("Logical monitor dimensions: %.2f x %.2f",
-          monitor_width, monitor_height);
-  g_info ("HiDPI scale: %.2f", hidpi_scale);
-  g_info ("Image dimensions: %.2f x %.2f", image_width, image_height);
-  g_info ("Zoom factor: %.2f", self->zoom_factor);
-  g_info ("Scaled image dimensions: %.2f x %.2f", *nat_width, *nat_height);
+  self->zoom_min = output.zoom_min;
+  self->zoom_max = output.zoom_max;
+  self->zoom_factor = output.zoom_factor;
+  *nat_width = output.width;
+  *nat_height = output.height;
 
   return FALSE;
 }
@@ -922,6 +779,28 @@ kasasa_window_apply_pending_resize (KasasaWindow *self)
   kasasa_window_resize_window_scaling (self,
                                        self->pending_content_height,
                                        self->pending_content_width);
+}
+
+static gboolean
+on_content_resize_request (gpointer               user_data,
+                           gdouble                new_height,
+                           gdouble                new_width,
+                           KasasaSwitchResizeMode mode,
+                           gboolean               for_zoom,
+                           gboolean               continuous)
+{
+  KasasaWindow *self = KASASA_WINDOW (user_data);
+
+  if (for_zoom)
+    return kasasa_window_resize_window_scaling_for_zoom (self,
+                                                         new_height,
+                                                         new_width,
+                                                         continuous);
+
+  return kasasa_window_resize_for_content_switch (self,
+                                                  new_height,
+                                                  new_width,
+                                                  mode);
 }
 
 static void
@@ -2232,6 +2111,11 @@ kasasa_window_init (KasasaWindow *self)
   g_type_ensure (KASASA_TYPE_CONTENT_CONTAINER);
 
   gtk_widget_init_template (GTK_WIDGET (self));
+
+  kasasa_content_container_set_resize_handler (self->content_container,
+                                               on_content_resize_request,
+                                               self,
+                                               NULL);
 
   // Initialize self variables
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");

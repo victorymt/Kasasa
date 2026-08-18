@@ -23,6 +23,7 @@
 
 #include <adwaita.h>
 
+#include "kasasa-window-layout.h"
 #include "kasasa-zoom.h"
 
 G_BEGIN_DECLS
@@ -33,13 +34,6 @@ typedef enum
   OPACITY_DECREASE
 } Opacity;
 
-typedef enum
-{
-  KASASA_SWITCH_RESIZE_FIT = 0,
-  KASASA_SWITCH_RESIZE_KEEP_WIDTH,
-  KASASA_SWITCH_RESIZE_KEEP_HEIGHT,
-} KasasaSwitchResizeMode;
-
 #define WINDOW_HIDING_DURATION 110
 #define WINDOW_WAITING_HIDING_DURATION (2 * WINDOW_HIDING_DURATION)
 
@@ -48,13 +42,13 @@ typedef enum
 #define WINDOW_RESIZING_DURATION 500
 
 /* Scroll-wheel zoom relative to the auto-fitted (occupy-screen) size */
-#define WINDOW_ZOOM_MIN      0.25
-#define WINDOW_ZOOM_MAX      4.00
+#define WINDOW_ZOOM_MIN      KASASA_WINDOW_LAYOUT_ZOOM_MIN
+#define WINDOW_ZOOM_MAX      KASASA_WINDOW_LAYOUT_ZOOM_MAX
 
 // Due to miniaturization, the real min dimensions are set here (width-request
 // and height-request)
-#define WINDOW_MIN_HEIGHT 110
-#define WINDOW_MIN_WIDTH  212
+#define WINDOW_MIN_HEIGHT KASASA_WINDOW_LAYOUT_MIN_HEIGHT
+#define WINDOW_MIN_WIDTH  KASASA_WINDOW_LAYOUT_MIN_WIDTH
 
 #define KASASA_TYPE_WINDOW (kasasa_window_get_type ())
 

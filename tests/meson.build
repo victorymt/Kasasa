@@ -92,6 +92,25 @@ test(
   timeout: 30,
 )
 
+window_layout_test = executable(
+  'test-window-layout',
+  [
+    'test-window-layout.c',
+    '../src/kasasa-window-layout.c',
+    '../src/kasasa-zoom.c',
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: [glib_dep, math_dep],
+)
+
+test(
+  'Window layout calculation',
+  window_layout_test,
+  env: ['G_DEBUG=fatal-warnings'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 image_test = executable(
   'test-image',
   [
@@ -372,6 +391,7 @@ gtk_window_test = executable(
     '../src/kasasa-application.c',
     '../src/kasasa-language.c',
     '../src/kasasa-window.c',
+    '../src/kasasa-window-layout.c',
     '../src/kasasa-preferences.c',
     '../src/kasasa-content-container.c',
     '../src/kasasa-region-capture.c',

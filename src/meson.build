@@ -51,6 +51,7 @@ kasasa_sources = [
   'kasasa-application.c',
   'kasasa-language.c',
   'kasasa-window.c',
+  'kasasa-window-layout.c',
   'kasasa-preferences.c',
   'kasasa-content.c',
   'kasasa-image.c',
