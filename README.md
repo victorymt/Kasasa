@@ -46,6 +46,11 @@ https://github.com/user-attachments/assets/eb98f2e0-d3cc-4461-bc84-25f438120b58
 >
 > Bare `--window=NAME` matches `class` first, then title substring. Multiple
 > matches print candidates and exit with status 2.
+
+CLI commands return status 0 on success, 1 when an operation cannot be
+performed or command-line options are invalid, 2 when a requested window or
+monitor has no match or has ambiguous matches, and 3 when the requested
+Hyprland target is unavailable.
 >
 > Live pin of a specific window without opening the interactive picker:
 >

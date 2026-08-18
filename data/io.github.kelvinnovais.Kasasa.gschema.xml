@@ -16,32 +16,44 @@
 	  <!-- AUTO HIDE HEADER BAR -->
 	  <key name="auto-hide-menu" type="b">
       <default>true</default>
+      <summary>Auto-hide header bar</summary>
+      <description>Hide the header bar when the pointer leaves the window</description>
     </key>
 
 	  <key name="controls-timeout" type="d">
       <range min="0.10" max="2.50"/>
       <default>2.0</default>
+	    <summary>Controls timeout</summary>
+	    <description>Seconds before the window controls are hidden</description>
 	  </key>
 
 	  <!-- OPACITY -->
 	  <key name="change-opacity" type="b">
       <default>false</default>
+      <summary>Change opacity</summary>
+      <description>Allow the window opacity to be adjusted</description>
     </key>
 
 	  <key name="opacity" type="d">
       <range min="0.10" max="1.00"/>
       <default>0.35</default>
+      <summary>Opacity</summary>
+      <description>Opacity used when the window is miniaturized</description>
     </key>
 
   	  <!-- MINIATURIZE -->
 	  <key name="miniaturize-window" type="b">
       <default>false</default>
+      <summary>Miniaturize window</summary>
+      <description>Reduce the window to a compact preview</description>
     </key>
 
 	  <!-- OCCUPY SCREEN -->
 	  <key name="occupy-screen" type="i">
       <range min="10" max="100"/>
       <default>15</default>
+      <summary>Screen occupation</summary>
+      <description>Maximum percentage of the screen used by the window</description>
     </key>
 
 	  <!-- IMAGE SWITCHING -->
@@ -49,33 +61,45 @@
       <range min="0" max="2"/>
       <!-- 0: fit image, 1: keep width, 2: keep height -->
       <default>0</default>
+      <summary>Image switch resize mode</summary>
+      <description>How the window is resized when switching images</description>
     </key>
 
 	  <!-- AUTO DISCARD WINDOW -->
 	  <key name="auto-discard-window" type="b">
       <default>false</default>
+      <summary>Auto-close window</summary>
+      <description>Close the window automatically after a timeout</description>
     </key>
 
 	  <key name="auto-discard-window-time" type="d">
       <range min="1.0" max="60.0"/>
       <default>1.0</default>
+      <summary>Auto-close timeout</summary>
+      <description>Seconds before an inactive window is closed</description>
     </key>
 
 	  <!-- AUTO TRASH IMAGE -->
 	  <key name="auto-trash-image" type="b">
       <default>false</default>
+      <summary>Auto-delete image</summary>
+      <description>Move images to Trash when they are closed or retaken</description>
     </key>
 
 	  <!-- SCREENSHOT DELAY -->
 	  <key name="screenshot-delay" type="u">
       <range min="1" max="60"/>
       <default>3</default>
+	    <summary>Screenshot delay</summary>
+	    <description>Seconds to wait before taking a delayed screenshot</description>
 	  </key>
 
 	  <!-- SCREENCAST FRAME RATE -->
 	  <key name="screencast-framerate" type="u">
       <range min="1" max="120"/>
       <default>30</default>
+	    <summary>Screencast frame rate</summary>
+	    <description>Maximum frames per second for live previews</description>
 	  </key>
 	</schema>
 </schemalist>
