@@ -178,6 +178,23 @@ test_selection_cancelled (void)
 }
 
 static void
+test_selection_failure (void)
+{
+  CaptureResult capture;
+
+  setup_fake_path ();
+  write_program ("slurp", "#!/bin/sh\nexit 2\n");
+  write_program ("grim", "#!/bin/sh\nexit 0\n");
+
+  capture = run_capture (NULL);
+  g_assert_null (capture.uri);
+  g_assert_error (capture.error, G_IO_ERROR, G_IO_ERROR_FAILED);
+
+  g_clear_error (&capture.error);
+  teardown_fake_path ();
+}
+
+static void
 test_grim_failure (void)
 {
   CaptureResult capture;
@@ -332,6 +349,8 @@ main (int argc, char **argv)
   g_test_add_func ("/region-capture/success", test_capture_success);
   g_test_add_func ("/region-capture/selection-cancelled",
                    test_selection_cancelled);
+  g_test_add_func ("/region-capture/selection-failure",
+                   test_selection_failure);
   g_test_add_func ("/region-capture/grim-failure", test_grim_failure);
   g_test_add_func ("/region-capture/running-cancelled",
                    test_running_selector_cancelled);

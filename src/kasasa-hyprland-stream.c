@@ -472,6 +472,10 @@ stream_clear_frame (KasasaHyprlandStream *self)
   self->frame_transform = WL_OUTPUT_TRANSFORM_NORMAL;
 }
 
+static gboolean stream_buffer_dimensions_valid (uint32_t width,
+                                                uint32_t height,
+                                                uint32_t stride);
+
 static int
 create_shm_file (size_t size)
 {
@@ -508,19 +512,13 @@ ensure_shm_buffer (KasasaHyprlandStream *self)
   struct wl_shm_pool *pool;
   size_t size;
 
-  if (self->shm == NULL || self->buffer_width == 0 || self->buffer_height == 0
-      || self->buffer_stride == 0)
-    return FALSE;
-
-  if (self->buffer_width > G_MAXINT32
-      || self->buffer_height > G_MAXINT32
-      || self->buffer_stride > G_MAXINT32
-      || (size_t) self->buffer_height > G_MAXSIZE / self->buffer_stride)
+  if (self->shm == NULL
+      || !stream_buffer_dimensions_valid (self->buffer_width,
+                                          self->buffer_height,
+                                          self->buffer_stride))
     return FALSE;
 
   size = (size_t) self->buffer_stride * (size_t) self->buffer_height;
-  if (size == 0 || size > G_MAXINT32)
-    return FALSE;
 
   if (self->buffer != NULL
       && self->allocated_buffer_format == self->buffer_format
@@ -810,6 +808,25 @@ stream_format_supported (uint32_t format)
          || format == WL_SHM_FORMAT_ABGR8888;
 }
 
+static gboolean
+stream_buffer_dimensions_valid (uint32_t width,
+                                uint32_t height,
+                                uint32_t stride)
+{
+  size_t size;
+
+  if (width == 0 || height == 0 || stride == 0
+      || width > G_MAXINT32 || height > G_MAXINT32
+      || stride > G_MAXINT32
+      || width > G_MAXUINT32 / 4
+      || stride < width * 4
+      || (size_t) height > G_MAXSIZE / stride)
+    return FALSE;
+
+  size = (size_t) stride * (size_t) height;
+  return size > 0 && size <= G_MAXINT32;
+}
+
 static void
 frame_handle_buffer (void                                   *data,
                      struct hyprland_toplevel_export_frame_v1 *frame,
@@ -826,6 +843,15 @@ frame_handle_buffer (void                                   *data,
   if (!stream_format_supported (format))
     {
       g_debug ("Ignoring unsupported shm format 0x%x", format);
+      return;
+    }
+
+  if (!stream_buffer_dimensions_valid (width, height, stride))
+    {
+      g_debug ("Ignoring invalid shm frame dimensions (%ux%u, stride %u)",
+               width,
+               height,
+               stride);
       return;
     }
 
@@ -1014,9 +1040,9 @@ output_session_handle_done (
   (void) session;
   self->constraints_done = TRUE;
   self->buffer_info_ready = self->buffer_format_valid
-                            && self->buffer_width > 0
-                            && self->buffer_height > 0
-                            && self->buffer_stride > 0;
+                            && stream_buffer_dimensions_valid (self->buffer_width,
+                                                               self->buffer_height,
+                                                               self->buffer_stride);
 }
 
 static void
@@ -1641,8 +1667,11 @@ emit_frame (KasasaHyprlandStream *self)
       return;
     }
 
-  if (self->buffer_data == NULL || width <= 0 || height <= 0
-      || stride <= 0 || self->frame_cb == NULL)
+  if (self->buffer_data == NULL
+      || !stream_buffer_dimensions_valid (self->buffer_width,
+                                          self->buffer_height,
+                                          self->buffer_stride)
+      || self->frame_cb == NULL)
     return;
 
   switch (self->buffer_format)

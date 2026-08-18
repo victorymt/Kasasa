@@ -32,12 +32,16 @@ run_subprocess (const gchar * const *argv,
                 gboolean             capture_stdout,
                 GCancellable        *cancellable,
                 gchar              **stdout_text,
+                gint                *exit_status,
                 GError             **error)
 {
   GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDERR_PIPE;
   g_autoptr (GSubprocess) subprocess = NULL;
   g_autofree gchar *stderr_text = NULL;
   gulong cancel_id = 0;
+
+  if (exit_status != NULL)
+    *exit_status = -1;
 
   if (capture_stdout)
     flags |= G_SUBPROCESS_FLAGS_STDOUT_PIPE;
@@ -70,6 +74,9 @@ run_subprocess (const gchar * const *argv,
   if (!g_subprocess_get_successful (subprocess))
     {
       g_autofree gchar *detail = g_strdup (stderr_text);
+
+      if (exit_status != NULL && g_subprocess_get_if_exited (subprocess))
+        *exit_status = g_subprocess_get_exit_status (subprocess);
 
       if (detail != NULL)
         g_strstrip (detail);
@@ -666,6 +673,7 @@ capture_region_worker (GTask        *task,
   g_autofree gchar *uri = NULL;
   g_autoptr (GError) error = NULL;
   const FrameGeometry *frame_geometry = NULL;
+  gint slurp_exit_status = -1;
   gint fd;
 #ifdef KASASA_HAVE_LAYER_SHELL
   FrameOverlay *overlay = NULL;
@@ -680,7 +688,7 @@ capture_region_worker (GTask        *task,
   close (fd);
 
   grim_argv[1] = frame_path;
-  if (!run_subprocess (grim_argv, FALSE, cancellable, NULL, &error))
+  if (!run_subprocess (grim_argv, FALSE, cancellable, NULL, NULL, &error))
     {
       g_unlink (frame_path);
       if (capture_was_cancelled (cancellable))
@@ -708,14 +716,18 @@ capture_region_worker (GTask        *task,
   frame_geometry = &overlay->geometry;
 #endif
 
-  if (!run_subprocess (slurp_argv, TRUE, cancellable, &geometry, &error))
+  if (!run_subprocess (slurp_argv,
+                       TRUE,
+                       cancellable,
+                       &geometry,
+                       &slurp_exit_status,
+                       &error))
     {
 #ifdef KASASA_HAVE_LAYER_SHELL
       frame_overlay_stop (overlay);
 #endif
       g_unlink (frame_path);
-      if (capture_was_cancelled (cancellable)
-          || g_error_matches (error, G_IO_ERROR, G_IO_ERROR_FAILED))
+      if (capture_was_cancelled (cancellable) || slurp_exit_status == 1)
         {
           g_clear_error (&error);
           g_task_return_new_error (task,

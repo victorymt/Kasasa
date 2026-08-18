@@ -31,6 +31,41 @@
 
 G_DEFINE_QUARK (kasasa-window-query-error-quark, kasasa_window_query_error)
 
+/* Table output is written directly to a terminal. Replace control characters
+ * so window metadata cannot inject cursor movement or additional rows. */
+static gchar *
+sanitize_terminal_field (const gchar *value)
+{
+  GString *sanitized;
+  const gchar *cursor;
+
+  if (value == NULL)
+    return g_strdup ("");
+
+  sanitized = g_string_new (NULL);
+  cursor = value;
+  while (*cursor != '\0')
+    {
+      gunichar character = g_utf8_get_char_validated (cursor, -1);
+
+      if (character == (gunichar) -1 || character == (gunichar) -2)
+        {
+          g_string_append_c (sanitized, '?');
+          cursor++;
+        }
+      else
+        {
+          if (g_unichar_iscntrl (character))
+            g_string_append_c (sanitized, ' ');
+          else
+            g_string_append_unichar (sanitized, character);
+          cursor = g_utf8_next_char (cursor);
+        }
+    }
+
+  return g_string_free (sanitized, FALSE);
+}
+
 void
 kasasa_window_spec_clear (KasasaWindowSpec *spec)
 {
@@ -68,7 +103,7 @@ kasasa_window_spec_parse (const gchar      *text,
     }
 
   colon = strchr (text, ':');
-  if (colon != NULL && colon != text)
+  if (colon != NULL)
     {
       g_autofree gchar *prefix = g_strndup (text, colon - text);
       const gchar *value = colon + 1;
@@ -101,6 +136,13 @@ kasasa_window_spec_parse (const gchar      *text,
           spec->value = g_strdup (value);
           return TRUE;
         }
+
+      g_set_error (error,
+                   KASASA_WINDOW_QUERY_ERROR,
+                   KASASA_WINDOW_QUERY_ERROR_FAILED,
+                   _("Unknown window specifier prefix '%s:'"),
+                   prefix);
+      return FALSE;
     }
 
   if (g_str_has_prefix (text, "0x") || g_str_has_prefix (text, "0X"))
@@ -450,12 +492,19 @@ kasasa_window_query_format_table (GPtrArray *clients)
   for (i = 0; i < clients->len; i++)
     {
       KasasaWindowClient *client = g_ptr_array_index (clients, i);
+      g_autofree gchar *address = sanitize_terminal_field (client->address);
+      g_autofree gchar *class_name =
+        sanitize_terminal_field (client->class_name);
+      g_autofree gchar *workspace_name =
+        sanitize_terminal_field (client->workspace_name);
+      g_autofree gchar *title = sanitize_terminal_field (client->title);
+
       g_string_append_printf (out,
                               "%-18s  %-16s  %-8s  %s\n",
-                              client->address != NULL ? client->address : "",
-                              client->class_name != NULL ? client->class_name : "",
-                              client->workspace_name != NULL ? client->workspace_name : "",
-                              client->title != NULL ? client->title : "");
+                              address,
+                              class_name,
+                              workspace_name,
+                              title);
     }
 
   return g_string_free (out, FALSE);
@@ -540,13 +589,16 @@ kasasa_monitor_query_format_table (GPtrArray *monitors)
       g_autofree gchar *size = g_strdup_printf ("%dx%d",
                                                 monitor->width,
                                                 monitor->height);
+      g_autofree gchar *name = sanitize_terminal_field (monitor->name);
+      g_autofree gchar *description =
+        sanitize_terminal_field (monitor->description);
 
       g_string_append_printf (out,
                               "%-12s  %-11s  %-7.2f  %s%s\n",
-                              monitor->name,
+                              name,
                               size,
                               monitor->scale,
-                              monitor->description,
+                              description,
                               monitor->focused ? " *" : "");
     }
 

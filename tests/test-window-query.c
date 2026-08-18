@@ -140,6 +140,15 @@ test_spec_parse (void)
   g_assert_false (kasasa_window_spec_parse ("", &spec, &error));
   g_assert_error (error, KASASA_WINDOW_QUERY_ERROR, KASASA_WINDOW_QUERY_ERROR_FAILED);
   g_clear_error (&error);
+
+  g_assert_false (kasasa_window_spec_parse ("workspace:1", &spec, &error));
+  g_assert_error (error, KASASA_WINDOW_QUERY_ERROR, KASASA_WINDOW_QUERY_ERROR_FAILED);
+  g_assert_nonnull (strstr (error->message, "workspace:"));
+  g_clear_error (&error);
+
+  g_assert_false (kasasa_window_spec_parse (":foo", &spec, &error));
+  g_assert_error (error, KASASA_WINDOW_QUERY_ERROR, KASASA_WINDOW_QUERY_ERROR_FAILED);
+  g_clear_error (&error);
 }
 
 static void
@@ -291,6 +300,49 @@ test_monitor_parse_resolve_and_format (void)
   json = kasasa_monitor_query_format_json (monitors);
   g_assert_nonnull (strstr (json, "\"name\" : \"HDMI-A-1\""));
   g_assert_nonnull (strstr (json, "\"focused\" : true"));
+}
+
+static void
+test_table_format_filters_controls (void)
+{
+  g_autoptr (GPtrArray) clients =
+    g_ptr_array_new_with_free_func ((GDestroyNotify) kasasa_window_client_free);
+  g_autoptr (GPtrArray) monitors =
+    g_ptr_array_new_with_free_func ((GDestroyNotify) kasasa_monitor_free);
+  g_autofree gchar *client_table = NULL;
+  g_autofree gchar *monitor_table = NULL;
+  KasasaWindowClient *client = g_new0 (KasasaWindowClient, 1);
+  KasasaMonitor *monitor = g_new0 (KasasaMonitor, 1);
+
+  client->address = g_strdup ("0xabc\033[31m");
+  client->class_name = g_strdup ("term\nclass");
+  client->workspace_name = g_strdup ("1\twest");
+  client->title = g_strdup ("title\r\nnext");
+  g_ptr_array_add (clients, client);
+
+  monitor->name = g_strdup ("DP-1\033[2J");
+  monitor->description = g_strdup ("desk\nwest");
+  monitor->width = 1920;
+  monitor->height = 1080;
+  monitor->scale = 1.0;
+  g_ptr_array_add (monitors, monitor);
+
+  client_table = kasasa_window_query_format_table (clients);
+  monitor_table = kasasa_monitor_query_format_table (monitors);
+
+  for (const gchar *cursor = client_table; *cursor != '\0'; cursor++)
+    if ((guchar) *cursor < 0x20)
+      g_assert_cmpint (*cursor, ==, '\n');
+  for (const gchar *cursor = monitor_table; *cursor != '\0'; cursor++)
+    if ((guchar) *cursor < 0x20)
+      g_assert_cmpint (*cursor, ==, '\n');
+  g_assert_null (strchr (client_table, '\033'));
+  g_assert_nonnull (strstr (client_table, "0xabc [31m"));
+  g_assert_nonnull (strstr (client_table, "term class"));
+  g_assert_nonnull (strstr (client_table, "title  next"));
+  g_assert_null (strchr (monitor_table, '\033'));
+  g_assert_nonnull (strstr (monitor_table, "DP-1 [2J"));
+  g_assert_nonnull (strstr (monitor_table, "desk west"));
 }
 
 static void
@@ -519,6 +571,8 @@ main (int argc, char **argv)
   g_test_add_func ("/unit/window-query/handle", test_handle_from_address);
   g_test_add_func ("/unit/monitor-query/parse-resolve-format",
                    test_monitor_parse_resolve_and_format);
+  g_test_add_func ("/unit/window-query/table-filters-controls",
+                   test_table_format_filters_controls);
   g_test_add_func ("/unit/window-query/live-active",
                    test_live_active_skips_client_listing);
   g_test_add_func ("/unit/hyprctl/query-timeout",
