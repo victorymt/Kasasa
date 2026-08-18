@@ -25,20 +25,11 @@
 #include <string.h>
 
 #include "kasasa-hyprctl.h"
+#include "kasasa-window-model.h"
 #include "kasasa-window-query.h"
+#include "kasasa-window-resolver.h"
 
 G_DEFINE_QUARK (kasasa-window-query-error-quark, kasasa_window_query_error)
-
-static gboolean
-is_kasasa_client (const KasasaWindowClient *client)
-{
-  if (client == NULL || client->class_name == NULL)
-    return FALSE;
-
-  return g_strcmp0 (client->class_name, "io.github.kelvinnovais.Kasasa") == 0
-         || g_strcmp0 (client->class_name, "kasasa") == 0
-         || g_strcmp0 (client->class_name, "Kasasa") == 0;
-}
 
 void
 kasasa_window_spec_clear (KasasaWindowSpec *spec)
@@ -204,235 +195,25 @@ kasasa_window_client_copy (const KasasaWindowClient *src)
   return copy;
 }
 
-static KasasaWindowClient *
-client_from_json_object (JsonObject *object)
-{
-  KasasaWindowClient *client;
-  JsonObject *workspace = NULL;
-  JsonArray *at = NULL;
-  JsonArray *size = NULL;
-
-  client = g_new0 (KasasaWindowClient, 1);
-  client->address = g_strdup (json_object_get_string_member_with_default (object, "address", ""));
-  client->class_name = g_strdup (json_object_get_string_member_with_default (object, "class", ""));
-  client->title = g_strdup (json_object_get_string_member_with_default (object, "title", ""));
-  client->mapped = json_object_get_boolean_member_with_default (object, "mapped", FALSE);
-  client->floating = json_object_get_boolean_member_with_default (object, "floating", FALSE);
-  client->monitor = json_object_get_int_member_with_default (object, "monitor", 0);
-  client->focus_history_id = json_object_get_int_member_with_default (
-    object, "focusHistoryID", G_MAXINT);
-
-  if (json_object_has_member (object, "workspace")
-      && JSON_NODE_HOLDS_OBJECT (json_object_get_member (object, "workspace")))
-    {
-      workspace = json_object_get_object_member (object, "workspace");
-      client->workspace_id = json_object_get_int_member_with_default (workspace, "id", 0);
-      client->workspace_name = g_strdup (json_object_get_string_member_with_default (workspace, "name", ""));
-    }
-  else
-    {
-      client->workspace_name = g_strdup ("");
-    }
-
-  if (json_object_has_member (object, "at")
-      && JSON_NODE_HOLDS_ARRAY (json_object_get_member (object, "at")))
-    {
-      at = json_object_get_array_member (object, "at");
-      if (json_array_get_length (at) >= 2)
-        {
-          client->x = json_array_get_int_element (at, 0);
-          client->y = json_array_get_int_element (at, 1);
-        }
-    }
-
-  if (json_object_has_member (object, "size")
-      && JSON_NODE_HOLDS_ARRAY (json_object_get_member (object, "size")))
-    {
-      size = json_object_get_array_member (object, "size");
-      if (json_array_get_length (size) >= 2)
-        {
-          client->width = json_array_get_int_element (size, 0);
-          client->height = json_array_get_int_element (size, 1);
-        }
-    }
-
-  return client;
-}
-
-static gint
-compare_clients_by_focus_history (gconstpointer a,
-                                  gconstpointer b)
-{
-  const KasasaWindowClient *client_a = *(KasasaWindowClient * const *) a;
-  const KasasaWindowClient *client_b = *(KasasaWindowClient * const *) b;
-  gint focus_a = client_a->focus_history_id >= 0
-                 ? client_a->focus_history_id : G_MAXINT;
-  gint focus_b = client_b->focus_history_id >= 0
-                 ? client_b->focus_history_id : G_MAXINT;
-  gint result;
-
-  if (focus_a != focus_b)
-    return focus_a < focus_b ? -1 : 1;
-
-  result = g_strcmp0 (client_a->class_name, client_b->class_name);
-  if (result != 0)
-    return result;
-
-  result = g_strcmp0 (client_a->title, client_b->title);
-  if (result != 0)
-    return result;
-
-  return g_strcmp0 (client_a->address, client_b->address);
-}
-
 GPtrArray *
 kasasa_window_query_parse_clients_json (const gchar *json,
                                         GError     **error)
 {
-  g_autoptr (JsonParser) parser = json_parser_new ();
-  JsonNode *root;
-  JsonArray *array;
-  GPtrArray *clients;
-  guint i;
-
-  g_return_val_if_fail (json != NULL, NULL);
-
-  if (!json_parser_load_from_data (parser, json, -1, error))
-    return NULL;
-
-  root = json_parser_get_root (parser);
-  if (root == NULL || !JSON_NODE_HOLDS_ARRAY (root))
-    {
-      g_set_error_literal (error,
-                           KASASA_WINDOW_QUERY_ERROR,
-                           KASASA_WINDOW_QUERY_ERROR_FAILED,
-                           _("Unexpected hyprctl clients JSON"));
-      return NULL;
-    }
-
-  array = json_node_get_array (root);
-  clients = g_ptr_array_new_with_free_func ((GDestroyNotify) kasasa_window_client_free);
-
-  for (i = 0; i < json_array_get_length (array); i++)
-    {
-      JsonNode *node = json_array_get_element (array, i);
-      KasasaWindowClient *client;
-
-      if (!JSON_NODE_HOLDS_OBJECT (node))
-        continue;
-
-      client = client_from_json_object (json_node_get_object (node));
-      if (!client->mapped || is_kasasa_client (client)
-          || client->width <= 0 || client->height <= 0)
-        {
-          kasasa_window_client_free (client);
-          continue;
-        }
-
-      g_ptr_array_add (clients, client);
-    }
-
-  g_ptr_array_sort (clients, compare_clients_by_focus_history);
-
-  return clients;
+  return kasasa_window_model_parse_clients_json (json, error);
 }
 
 KasasaWindowClient *
 kasasa_window_query_parse_active_json (const gchar *json,
                                        GError     **error)
 {
-  g_autoptr (JsonParser) parser = json_parser_new ();
-  JsonNode *root;
-  KasasaWindowClient *client;
-
-  g_return_val_if_fail (json != NULL, NULL);
-
-  if (!json_parser_load_from_data (parser, json, -1, error))
-    return NULL;
-
-  root = json_parser_get_root (parser);
-  if (root == NULL || !JSON_NODE_HOLDS_OBJECT (root))
-    {
-      g_set_error_literal (error,
-                           KASASA_WINDOW_QUERY_ERROR,
-                           KASASA_WINDOW_QUERY_ERROR_FAILED,
-                           _("Unexpected hyprctl activewindow JSON"));
-      return NULL;
-    }
-
-  client = client_from_json_object (json_node_get_object (root));
-  if (!client->mapped || client->address == NULL || client->address[0] == '\0'
-      || is_kasasa_client (client))
-    {
-      kasasa_window_client_free (client);
-      return NULL;
-    }
-
-  return client;
+  return kasasa_window_model_parse_active_json (json, error);
 }
 
 GPtrArray *
 kasasa_monitor_query_parse_json (const gchar *json,
                                  GError     **error)
 {
-  g_autoptr (JsonParser) parser = json_parser_new ();
-  JsonNode *root;
-  JsonArray *array;
-  GPtrArray *monitors;
-  guint i;
-
-  g_return_val_if_fail (json != NULL, NULL);
-
-  if (!json_parser_load_from_data (parser, json, -1, error))
-    return NULL;
-
-  root = json_parser_get_root (parser);
-  if (root == NULL || !JSON_NODE_HOLDS_ARRAY (root))
-    {
-      g_set_error_literal (error,
-                           KASASA_WINDOW_QUERY_ERROR,
-                           KASASA_WINDOW_QUERY_ERROR_FAILED,
-                           _("Unexpected hyprctl monitors JSON"));
-      return NULL;
-    }
-
-  array = json_node_get_array (root);
-  monitors = g_ptr_array_new_with_free_func ((GDestroyNotify) kasasa_monitor_free);
-
-  for (i = 0; i < json_array_get_length (array); i++)
-    {
-      JsonNode *node = json_array_get_element (array, i);
-      JsonObject *object;
-      KasasaMonitor *monitor;
-
-      if (!JSON_NODE_HOLDS_OBJECT (node))
-        continue;
-
-      object = json_node_get_object (node);
-      monitor = g_new0 (KasasaMonitor, 1);
-      monitor->id = json_object_get_int_member_with_default (object, "id", -1);
-      monitor->name = g_strdup (
-        json_object_get_string_member_with_default (object, "name", ""));
-      monitor->description = g_strdup (
-        json_object_get_string_member_with_default (object, "description", ""));
-      monitor->width = json_object_get_int_member_with_default (object, "width", 0);
-      monitor->height = json_object_get_int_member_with_default (object, "height", 0);
-      monitor->scale = json_object_get_double_member_with_default (object, "scale", 1.0);
-      monitor->transform = json_object_get_int_member_with_default (object, "transform", 0);
-      monitor->focused = json_object_get_boolean_member_with_default (object,
-                                                                      "focused",
-                                                                      FALSE);
-
-      if (monitor->name[0] == '\0' || monitor->width <= 0 || monitor->height <= 0)
-        {
-          kasasa_monitor_free (monitor);
-          continue;
-        }
-
-      g_ptr_array_add (monitors, monitor);
-    }
-
-  return monitors;
+  return kasasa_window_model_parse_monitors_json (json, error);
 }
 
 static void
@@ -595,96 +376,6 @@ kasasa_monitor_query_resolve_live (const gchar *spec,
   return kasasa_monitor_query_resolve (monitors, spec, error);
 }
 
-static gboolean
-address_equal (const gchar *a,
-               const gchar *b)
-{
-  if (a == NULL || b == NULL)
-    return FALSE;
-  return g_ascii_strcasecmp (a, b) == 0;
-}
-
-static void
-collect_class_matches (GPtrArray   *clients,
-                       const gchar *class_name,
-                       GPtrArray   *out)
-{
-  guint i;
-
-  for (i = 0; i < clients->len; i++)
-    {
-      KasasaWindowClient *client = g_ptr_array_index (clients, i);
-      if (g_strcmp0 (client->class_name, class_name) == 0)
-        g_ptr_array_add (out, kasasa_window_client_copy (client));
-    }
-}
-
-static void
-collect_title_matches (GPtrArray   *clients,
-                       const gchar *needle,
-                       GPtrArray   *out)
-{
-  guint i;
-
-  for (i = 0; i < clients->len; i++)
-    {
-      KasasaWindowClient *client = g_ptr_array_index (clients, i);
-      if (client->title != NULL && strstr (client->title, needle) != NULL)
-        g_ptr_array_add (out, kasasa_window_client_copy (client));
-    }
-}
-
-static void
-collect_address_matches (GPtrArray   *clients,
-                         const gchar *address,
-                         GPtrArray   *out)
-{
-  guint i;
-
-  for (i = 0; i < clients->len; i++)
-    {
-      KasasaWindowClient *client = g_ptr_array_index (clients, i);
-      if (address_equal (client->address, address))
-        g_ptr_array_add (out, kasasa_window_client_copy (client));
-    }
-}
-
-static KasasaWindowClient *
-finish_matches (GPtrArray  **matches_ptr,
-                GPtrArray  **candidates,
-                GError     **error)
-{
-  GPtrArray *matches;
-  KasasaWindowClient *chosen;
-
-  g_return_val_if_fail (matches_ptr != NULL && *matches_ptr != NULL, NULL);
-
-  matches = *matches_ptr;
-
-  if (matches->len == 0)
-    {
-      g_set_error_literal (error,
-                           KASASA_WINDOW_QUERY_ERROR,
-                           KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
-                           _("No window matched the specifier"));
-      return NULL;
-    }
-
-  if (matches->len > 1)
-    {
-      if (candidates != NULL)
-        *candidates = g_steal_pointer (matches_ptr);
-      g_set_error_literal (error,
-                           KASASA_WINDOW_QUERY_ERROR,
-                           KASASA_WINDOW_QUERY_ERROR_AMBIGUOUS,
-                           _("Multiple windows matched the specifier"));
-      return NULL;
-    }
-
-  chosen = g_ptr_array_steal_index (matches, 0);
-  return chosen;
-}
-
 KasasaWindowClient *
 kasasa_window_query_resolve (const KasasaWindowSpec   *spec,
                              GPtrArray                *clients,
@@ -692,53 +383,11 @@ kasasa_window_query_resolve (const KasasaWindowSpec   *spec,
                              GPtrArray               **candidates,
                              GError                  **error)
 {
-  g_autoptr (GPtrArray) matches = NULL;
-
-  g_return_val_if_fail (spec != NULL, NULL);
-  g_return_val_if_fail (clients != NULL, NULL);
-
-  if (candidates != NULL)
-    *candidates = NULL;
-
-  matches = g_ptr_array_new_with_free_func ((GDestroyNotify) kasasa_window_client_free);
-
-  switch (spec->kind)
-    {
-    case KASASA_WINDOW_SPEC_ACTIVE:
-      if (active == NULL)
-        {
-          g_set_error_literal (error,
-                               KASASA_WINDOW_QUERY_ERROR,
-                               KASASA_WINDOW_QUERY_ERROR_NO_MATCH,
-                               _("No active window"));
-          return NULL;
-        }
-      return kasasa_window_client_copy (active);
-
-    case KASASA_WINDOW_SPEC_ADDRESS:
-      collect_address_matches (clients, spec->value, matches);
-      return finish_matches (&matches, candidates, error);
-
-    case KASASA_WINDOW_SPEC_CLASS:
-      collect_class_matches (clients, spec->value, matches);
-      return finish_matches (&matches, candidates, error);
-
-    case KASASA_WINDOW_SPEC_TITLE:
-      collect_title_matches (clients, spec->value, matches);
-      return finish_matches (&matches, candidates, error);
-
-    case KASASA_WINDOW_SPEC_BARE:
-      collect_class_matches (clients, spec->value, matches);
-      if (matches->len >= 1)
-        return finish_matches (&matches, candidates, error);
-
-      /* No class hit: try title substring. */
-      collect_title_matches (clients, spec->value, matches);
-      return finish_matches (&matches, candidates, error);
-
-    default:
-      g_assert_not_reached ();
-    }
+  return kasasa_window_resolver_resolve (spec,
+                                         clients,
+                                         active,
+                                         candidates,
+                                         error);
 }
 
 KasasaWindowClient *
@@ -869,24 +518,7 @@ kasasa_window_query_format_json (GPtrArray *clients)
 gchar *
 kasasa_window_query_format_candidates (GPtrArray *clients)
 {
-  GString *out;
-  guint i;
-
-  g_return_val_if_fail (clients != NULL, NULL);
-
-  out = g_string_new (_("Candidates:"));
-  g_string_append_c (out, '\n');
-  for (i = 0; i < clients->len; i++)
-    {
-      KasasaWindowClient *client = g_ptr_array_index (clients, i);
-      g_string_append_printf (out,
-                              "  %s  class=%s  title=%s\n",
-                              client->address != NULL ? client->address : "?",
-                              client->class_name != NULL ? client->class_name : "",
-                              client->title != NULL ? client->title : "");
-    }
-
-  return g_string_free (out, FALSE);
+  return kasasa_window_resolver_format_candidates (clients);
 }
 
 gchar *

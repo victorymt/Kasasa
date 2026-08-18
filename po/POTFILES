@@ -14,5 +14,7 @@ src/kasasa-screencast.c
 src/kasasa-screenshot.c
 src/kasasa-preferences.c
 src/kasasa-preferences.ui
+src/kasasa-window-model.c
 src/kasasa-window-query.c
+src/kasasa-window-resolver.c
 src/kasasa-window-picker.c

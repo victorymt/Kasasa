@@ -87,6 +87,8 @@ kasasa_query_lib = static_library(
   'kasasa-query',
   [
     'src/kasasa-hyprctl.c',
+    'src/kasasa-window-model.c',
+    'src/kasasa-window-resolver.c',
     'src/kasasa-window-query.c',
   ],
   include_directories: include_directories('src'),
