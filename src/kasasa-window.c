@@ -34,6 +34,8 @@
  * transparent. */
 #define INITIAL_REVEAL_SETTLE_USEC (50 * G_TIME_SPAN_MILLISECOND)
 #define INITIAL_REVEAL_STABLE_FRAMES 2
+#define INITIAL_REVEAL_MAX_RETRIES 120
+#define INITIAL_REVEAL_DEADLINE_USEC (2 * G_TIME_SPAN_SECOND)
 
 struct _KasasaWindow
 {
@@ -78,6 +80,7 @@ struct _KasasaWindow
   gint64   zoom_last_frame_time;
   guint    zoom_tick_id;
   guint    initial_reveal_tick_id;
+  guint    initial_reveal_retries;
   guint    initial_reveal_stable_frames;
   gint64   initial_reveal_started_at;
   gint     initial_reveal_surface_width;
@@ -933,10 +936,30 @@ initial_reveal_tick_cb (GtkWidget     *widget,
   gint target_width;
   gint target_height;
   gboolean geometry_changed;
+  gint64 elapsed;
 
   if (!self->initial_reveal_pending)
     {
       self->initial_reveal_tick_id = 0;
+      return G_SOURCE_REMOVE;
+    }
+
+  self->initial_reveal_retries++;
+  elapsed = self->initial_reveal_started_at > 0
+            ? g_get_monotonic_time () - self->initial_reveal_started_at
+            : 0;
+  if (self->initial_reveal_retries >= INITIAL_REVEAL_MAX_RETRIES
+      || elapsed >= INITIAL_REVEAL_DEADLINE_USEC)
+    {
+      /* A failed or permanently unavailable surface must not leave the pin
+       * transparent forever. Normal startup still follows the stable geometry
+       * path below; this is only a bounded fallback for broken compositors or
+       * capture backends. */
+      g_info ("Initial reveal timed out after %u retries",
+              self->initial_reveal_retries);
+      self->initial_reveal_pending = FALSE;
+      self->initial_reveal_tick_id = 0;
+      gtk_widget_set_opacity (widget, 1.0);
       return G_SOURCE_REMOVE;
     }
 
@@ -1044,6 +1067,7 @@ kasasa_window_begin_initial_reveal (KasasaWindow *self)
   self->initial_content_ready = FALSE;
   self->awaiting_initial_pointer_motion = TRUE;
   self->mouse_over_window = FALSE;
+  self->initial_reveal_retries = 0;
   self->initial_reveal_stable_frames = 0;
   self->initial_reveal_started_at = 0;
   self->initial_reveal_surface_width = -1;
@@ -1074,6 +1098,7 @@ kasasa_window_finish_initial_reveal (KasasaWindow *self)
     }
 
   self->initial_content_ready = TRUE;
+  self->initial_reveal_retries = 0;
   self->initial_reveal_stable_frames = 0;
   self->initial_reveal_started_at = g_get_monotonic_time ();
   if (self->initial_reveal_tick_id == 0)
@@ -1304,6 +1329,65 @@ on_modal_close_request (GtkWindow *window,
   return FALSE;
 }
 
+static void
+on_modal_dialog_closed (AdwDialog *dialog,
+                        gpointer   user_data)
+{
+  kasasa_window_miniaturize_window (KASASA_WINDOW (user_data), TRUE);
+}
+
+static gboolean
+modal_handler_connected (gpointer    instance,
+                         const char *signal_name,
+                         GCallback   callback,
+                         gpointer    data)
+{
+  guint signal_id = g_signal_lookup (signal_name, G_OBJECT_TYPE (instance));
+
+  if (signal_id == 0)
+    return FALSE;
+
+  return g_signal_handler_find (instance,
+                                G_SIGNAL_MATCH_ID
+                                | G_SIGNAL_MATCH_FUNC
+                                | G_SIGNAL_MATCH_DATA,
+                                signal_id,
+                                0,
+                                NULL,
+                                callback,
+                                data) != 0;
+}
+
+static void
+connect_modal_close_request (GtkWindow    *window,
+                             KasasaWindow *self)
+{
+  if (!modal_handler_connected (window,
+                                "close-request",
+                                G_CALLBACK (on_modal_close_request),
+                                self))
+    g_signal_connect_object (window,
+                              "close-request",
+                              G_CALLBACK (on_modal_close_request),
+                              self,
+                              0);
+}
+
+static void
+connect_modal_dialog_closed (AdwDialog   *dialog,
+                             KasasaWindow *self)
+{
+  if (!modal_handler_connected (dialog,
+                                "closed",
+                                G_CALLBACK (on_modal_dialog_closed),
+                                self))
+    g_signal_connect_object (dialog,
+                              "closed",
+                              G_CALLBACK (on_modal_dialog_closed),
+                              self,
+                              0);
+}
+
 /**
  * This function recognizes if there's a Preferences/About dialog (modals);
  * Since the window is not resizeble, a dialog can presented as a transient
@@ -1320,14 +1404,38 @@ has_modal (KasasaWindow *self)
     {
       gpointer item = g_list_model_get_item (windows, i);
 
-      if (GTK_IS_WINDOW (item) && !GTK_IS_SHORTCUTS_WINDOW (item) && gtk_window_get_modal (GTK_WINDOW (item)))
+      if (!GTK_IS_WINDOW (item))
+        {
+          g_object_unref (item);
+          continue;
+        }
+
+      if (!GTK_IS_SHORTCUTS_WINDOW (item)
+          && gtk_window_get_modal (GTK_WINDOW (item)))
         {
           g_info ("Window has a modal");
-          g_signal_connect (item, "close-request",
-                            G_CALLBACK (on_modal_close_request), self);
+          connect_modal_close_request (GTK_WINDOW (item), self);
           g_object_unref (item);
           return TRUE;
         }
+
+      if (ADW_IS_APPLICATION_WINDOW (item) || ADW_IS_WINDOW (item))
+        {
+          AdwDialog *dialog =
+            ADW_IS_APPLICATION_WINDOW (item)
+            ? adw_application_window_get_visible_dialog (
+                ADW_APPLICATION_WINDOW (item))
+            : adw_window_get_visible_dialog (ADW_WINDOW (item));
+
+          if (dialog != NULL)
+            {
+              g_info ("Window has a modal Adwaita dialog");
+              connect_modal_dialog_closed (dialog, self);
+              g_object_unref (item);
+              return TRUE;
+            }
+        }
+
       g_object_unref (item);
     }
 
@@ -1966,6 +2074,9 @@ on_scroll (GtkEventControllerScroll *controller,
   KasasaScrollAxis axis;
   GdkScrollUnit unit;
 
+  if (self->crop_mode_active)
+    return GDK_EVENT_PROPAGATE;
+
   unit = gtk_event_controller_scroll_get_unit (controller);
   input = unit == GDK_SCROLL_UNIT_SURFACE
           ? KASASA_ZOOM_INPUT_SURFACE
@@ -2234,6 +2345,7 @@ kasasa_window_init (KasasaWindow *self)
   self->zoom_last_frame_time = 0;
   self->zoom_tick_id = 0;
   self->initial_reveal_tick_id = 0;
+  self->initial_reveal_retries = 0;
   self->initial_reveal_stable_frames = 0;
   self->initial_reveal_started_at = 0;
   self->initial_reveal_surface_width = -1;

@@ -76,6 +76,27 @@ find_motion_controller (GtkWidget *widget)
   return NULL;
 }
 
+static GtkEventController *
+find_scroll_controller (GtkWidget *widget)
+{
+  g_autoptr (GListModel) controllers = NULL;
+  guint n_controllers;
+
+  controllers = gtk_widget_observe_controllers (widget);
+  n_controllers = g_list_model_get_n_items (controllers);
+  for (guint i = 0; i < n_controllers; i++)
+    {
+      GtkEventController *controller = g_list_model_get_item (controllers, i);
+
+      if (GTK_IS_EVENT_CONTROLLER_SCROLL (controller))
+        return controller;
+
+      g_object_unref (controller);
+    }
+
+  return NULL;
+}
+
 static void
 dispatch_pending_sources (void)
 {
@@ -424,6 +445,7 @@ test_preview_lock_keeps_controls_hidden (void)
   g_autoptr (GError) error = NULL;
   g_autoptr (KasasaApplication) application = NULL;
   g_autoptr (GtkEventController) content_motion = NULL;
+  g_autoptr (GtkEventController) window_scroll = NULL;
   GtkRevealer *header_bar_revealer;
   GtkRevealer *toolbar_revealer;
   GtkToggleButton *lock_button;
@@ -469,6 +491,8 @@ test_preview_lock_keeps_controls_hidden (void)
 
   content_motion = find_motion_controller (content_container);
   g_assert_nonnull (content_motion);
+  window_scroll = find_scroll_controller (GTK_WIDGET (window));
+  g_assert_nonnull (window_scroll);
 
   gtk_window_present (GTK_WINDOW (window));
   dispatch_pending_sources ();
@@ -495,6 +519,20 @@ test_preview_lock_keeps_controls_hidden (void)
   g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
   g_assert_true (gtk_revealer_get_reveal_child (toolbar_revealer));
   g_assert_false (gtk_widget_get_sensitive (GTK_WIDGET (lock_button)));
+
+  /* Crop gestures must reach the crop surface without changing the pin zoom. */
+  {
+    gdouble zoom_before = kasasa_window_get_zoom_factor (window);
+    gboolean handled = TRUE;
+
+    g_signal_emit_by_name (window_scroll,
+                           "scroll",
+                           0.0,
+                           1.0,
+                           &handled);
+    g_assert_false (handled);
+    g_assert_cmpfloat (kasasa_window_get_zoom_factor (window), ==, zoom_before);
+  }
 
   g_signal_emit_by_name (content_motion, "enter", 10.0, 10.0);
   g_assert_false (gtk_revealer_get_reveal_child (header_bar_revealer));
