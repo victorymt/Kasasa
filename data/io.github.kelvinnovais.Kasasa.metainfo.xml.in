@@ -33,15 +33,10 @@
       <li>"Always on Top" and/or "Always on Visible Workspace"</li>
       <li>A keyboard shortcut</li>
     </ul>
-    <!-- translators: do not include the tags <code></code> -->
     <p>
-      On GNOME, go to Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts.
-      There you can set a shortcut to run <code>kasasa</code>
-    </p>
-    <!-- translators: replace "&lt;" with < and "&apos;" with ' -->
-    <p>
-      Note: On GNOME versions &lt; 46, a dialog will appear to set up and take the screenshot,
-      instead of directly using the GNOME's screenshoter; this may be inconvenient.
+      Kasasa is designed for Hyprland. Region screenshots require <code>slurp</code> and
+      <code>grim</code>; live window and monitor previews use Hyprland's Wayland capture
+      protocols.
     </p>
   </description>
 
@@ -69,10 +64,19 @@
   </branding>
 
   <releases>
+    <release date="2026-08-18" version="1.2.0">
+      <description translate="no">
+        <ul>
+          <li>Added live Hyprland window and monitor capture workflows</li>
+          <li>Added targeted window and monitor CLI queries</li>
+          <li>Improved capture reliability and modularized query and capture layers</li>
+        </ul>
+      </description>
+    </release>
     <release date="2026-02-24" version="1.1.6">
       <description translate="no">
         <ul>
-          <li>Added Frech translation (@YoavRheims)</li>
+          <li>Added French translation (@YoavRheims)</li>
           <li>Updated German translation (@uwe-ss)</li>
           <li>Updated Russian translation (@vmkspv)</li>
           <li>Allow occupying 100% of the screen</li>

@@ -1,6 +1,8 @@
 wayland_scanner = find_program('wayland-scanner')
 wayland_client_dep = dependency('wayland-client')
-wayland_protocols_dep = dependency('wayland-protocols')
+# The staging image-capture and foreign-toplevel XML files below were added
+# after 1.34; fail early with a useful configure error on older systems.
+wayland_protocols_dep = dependency('wayland-protocols', version: '>= 1.35')
 wayland_protocols_dir = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir')
 wayland_protocols_gen = []
 

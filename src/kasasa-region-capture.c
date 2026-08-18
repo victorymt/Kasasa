@@ -3,6 +3,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#include "config.h"
+
+#include <glib/gi18n.h>
+
 #include "kasasa-region-capture.h"
 #include "kasasa-region-capture-private.h"
 
@@ -431,13 +435,13 @@ frame_overlay_show_cb (gpointer user_data)
         g_set_error_literal (&error,
                              G_IO_ERROR,
                              G_IO_ERROR_FAILED,
-                             "GTK Layer Shell could not initialize; verify "
-                             "that it is linked before libwayland-client");
+                             _("GTK Layer Shell could not initialize; verify "
+                               "that it is linked before libwayland-client"));
       else
         g_set_error_literal (&error,
                              G_IO_ERROR,
                              G_IO_ERROR_NOT_SUPPORTED,
-                             "The compositor does not support Layer Shell");
+                             _("The compositor does not support Layer Shell"));
       frame_overlay_complete (overlay, g_steal_pointer (&error));
       goto out;
     }
@@ -470,7 +474,7 @@ frame_overlay_show_cb (gpointer user_data)
       g_set_error_literal (&error,
                            G_IO_ERROR,
                            G_IO_ERROR_FAILED,
-                           "No display is available for the frozen frame");
+                           _("No display is available for the frozen frame"));
       frame_overlay_complete (overlay, g_steal_pointer (&error));
       goto out;
     }
@@ -492,7 +496,7 @@ frame_overlay_show_cb (gpointer user_data)
       g_set_error_literal (&error,
                            G_IO_ERROR,
                            G_IO_ERROR_FAILED,
-                           "The frozen frame did not cover any display");
+                           _("The frozen frame did not cover any display"));
       frame_overlay_complete (overlay, g_steal_pointer (&error));
     }
 
@@ -544,12 +548,12 @@ frame_overlay_start (FrameOverlay  *overlay,
     g_set_error_literal (error,
                          G_IO_ERROR,
                          G_IO_ERROR_CANCELLED,
-                         "Region capture cancelled");
+                         _("Region capture cancelled"));
   else if (!overlay->completed)
     g_set_error_literal (error,
                          G_IO_ERROR,
                          G_IO_ERROR_TIMED_OUT,
-                         "Timed out while presenting the frozen frame");
+                         _("Timed out while presenting the frozen frame"));
   else if (overlay->error != NULL)
     g_propagate_error (error, g_error_copy (overlay->error));
   else
@@ -685,7 +689,7 @@ capture_region_worker (GTask        *task,
           g_task_return_new_error (task,
                                    G_IO_ERROR,
                                    G_IO_ERROR_CANCELLED,
-                                   "Region capture cancelled");
+                                   _("Region capture cancelled"));
         }
       else
         g_task_return_error (task, g_steal_pointer (&error));
@@ -717,7 +721,7 @@ capture_region_worker (GTask        *task,
           g_task_return_new_error (task,
                                    G_IO_ERROR,
                                    G_IO_ERROR_CANCELLED,
-                                   "Region selection cancelled");
+                                   _("Region selection cancelled"));
         }
       else
         g_task_return_error (task, g_steal_pointer (&error));
@@ -755,7 +759,7 @@ capture_region_worker (GTask        *task,
           g_task_return_new_error (task,
                                    G_IO_ERROR,
                                    G_IO_ERROR_CANCELLED,
-                                   "Region capture cancelled");
+                                   _("Region capture cancelled"));
         }
       else
         g_task_return_error (task, g_steal_pointer (&error));

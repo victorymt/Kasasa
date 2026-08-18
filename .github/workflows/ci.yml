@@ -25,6 +25,13 @@ jobs:
         run: meson setup build --buildtype=debug
       - name: Build
         run: meson compile -C build
+      - name: Check translations
+        run: |
+          meson compile -C build kasasa-pot
+          git diff --exit-code --ignore-matching-lines='^"POT-Creation-Date: ' -- po/kasasa.pot
+          for po in po/*.po; do
+            msgfmt --check --output-file=/dev/null "$po"
+          done
       - name: Test
         run: |
           Xvfb :99 -screen 0 1280x1024x24 &

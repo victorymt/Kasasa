@@ -12,6 +12,7 @@ src/kasasa-hyprland-capture.c
 src/kasasa-hyprland-stream.c
 src/kasasa-screencast.c
 src/kasasa-screenshot.c
+src/kasasa-region-capture.c
 src/kasasa-preferences.c
 src/kasasa-preferences.ui
 src/kasasa-window-model.c
