@@ -120,6 +120,24 @@ image_test = executable(
   dependencies: gtk_dep,
 )
 
+window_picker_logic_test = executable(
+  'test-window-picker-logic',
+  [
+    'test-window-picker-logic.c',
+    '../src/kasasa-window-picker-logic.c',
+  ],
+  include_directories: include_directories('../src'),
+  dependencies: glib_dep,
+)
+
+test(
+  'Window picker logic',
+  window_picker_logic_test,
+  env: ['G_DEBUG=fatal-warnings'],
+  suite: 'unit',
+  timeout: 30,
+)
+
 test(
   'Image loading',
   image_test,
@@ -347,6 +365,7 @@ gtk_content_container_test = executable(
     '../src/kasasa-crop-paintable.c',
     '../src/kasasa-dmabuf-paintable.c',
     '../src/kasasa-window-picker.c',
+    '../src/kasasa-window-picker-logic.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-wayland-stubs.c',
@@ -399,6 +418,7 @@ gtk_window_test = executable(
     '../src/kasasa-crop-paintable.c',
     '../src/kasasa-dmabuf-paintable.c',
     '../src/kasasa-window-picker.c',
+    '../src/kasasa-window-picker-logic.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-wayland-stubs.c',

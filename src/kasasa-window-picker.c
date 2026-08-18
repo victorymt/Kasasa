@@ -6,9 +6,9 @@
  */
 
 #include <glib/gi18n.h>
-#include <string.h>
 
 #include "kasasa-window-picker.h"
+#include "kasasa-window-picker-logic.h"
 
 typedef struct
 {
@@ -24,11 +24,6 @@ typedef struct
   gboolean                    completed;
 } KasasaWindowPickerData;
 
-#define PICKER_ROW_HEIGHT 72
-#define PICKER_BASE_HEIGHT 148
-#define PICKER_MIN_HEIGHT 280
-#define PICKER_MAX_HEIGHT 560
-
 static void
 picker_data_free (KasasaWindowPickerData *data)
 {
@@ -40,23 +35,6 @@ picker_data_free (KasasaWindowPickerData *data)
 }
 
 static gboolean
-matches_search (const gchar *text,
-                const gchar *query)
-{
-  g_autofree gchar *folded_text = NULL;
-  g_autofree gchar *folded_query = NULL;
-
-  if (query == NULL || *query == '\0')
-    return TRUE;
-  if (text == NULL)
-    return FALSE;
-
-  folded_text = g_utf8_casefold (text, -1);
-  folded_query = g_utf8_casefold (query, -1);
-  return strstr (folded_text, folded_query) != NULL;
-}
-
-static gboolean
 filter_window_row (GtkListBoxRow *row,
                    gpointer       user_data)
 {
@@ -65,9 +43,9 @@ filter_window_row (GtkListBoxRow *row,
                                                    "kasasa-window-client");
   const gchar *query = gtk_editable_get_text (GTK_EDITABLE (data->search_entry));
 
-  return matches_search (client->title, query)
-         || matches_search (client->class_name, query)
-         || matches_search (client->workspace_name, query);
+  return kasasa_window_picker_matches_search (client->title, query)
+         || kasasa_window_picker_matches_search (client->class_name, query)
+         || kasasa_window_picker_matches_search (client->workspace_name, query);
 }
 
 static GtkListBoxRow *
@@ -261,16 +239,6 @@ create_window_row (KasasaWindowClient *client)
   return row;
 }
 
-static gint
-picker_height_for_count (guint count)
-{
-  guint visible_rows = MIN (count, 6);
-
-  return CLAMP (PICKER_BASE_HEIGHT + (gint) visible_rows * PICKER_ROW_HEIGHT,
-                PICKER_MIN_HEIGHT,
-                PICKER_MAX_HEIGHT);
-}
-
 static void
 replace_clients (KasasaWindowPickerData *data,
                  GPtrArray              *clients)
@@ -289,7 +257,7 @@ replace_clients (KasasaWindowPickerData *data,
 
   gtk_window_set_default_size (data->window,
                                520,
-                               picker_height_for_count (data->clients->len));
+                               kasasa_window_picker_height_for_count (data->clients->len));
   gtk_list_box_invalidate_filter (data->list);
   update_empty_state (data);
 }

@@ -63,6 +63,7 @@ kasasa_sources = [
   'kasasa-capture-controller.c',
   'kasasa-content-container.c',
   'kasasa-window-picker.c',
+  'kasasa-window-picker-logic.c',
   'kasasa-hyprland-capture.c',
   'kasasa-hyprland-stream.c',
   'kasasa-wayland-stubs.c',
