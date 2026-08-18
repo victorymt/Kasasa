@@ -18,9 +18,9 @@ language_test = executable(
   'test-language',
   [
     'test-language.c',
-    '../src/kasasa-language.c',
   ],
   include_directories: include_directories('../src'),
+  link_with: kasasa_core_lib,
   dependencies: gio_dep,
 )
 
@@ -78,9 +78,9 @@ zoom_test = executable(
   'test-zoom',
   [
     'test-zoom.c',
-    '../src/kasasa-zoom.c',
   ],
   include_directories: include_directories('../src'),
+  link_with: kasasa_core_lib,
   dependencies: [glib_dep, math_dep],
 )
 
@@ -96,10 +96,9 @@ window_layout_test = executable(
   'test-window-layout',
   [
     'test-window-layout.c',
-    '../src/kasasa-window-layout.c',
-    '../src/kasasa-zoom.c',
   ],
   include_directories: include_directories('../src'),
+  link_with: kasasa_core_lib,
   dependencies: [glib_dep, math_dep],
 )
 
@@ -133,9 +132,9 @@ source_test = executable(
   'test-source',
   [
     'test-source.c',
-    '../src/kasasa-source.c',
   ],
   include_directories: include_directories('../src'),
+  link_with: kasasa_core_lib,
   dependencies: glib_dep,
 )
 
@@ -170,13 +169,12 @@ window_query_test = executable(
   'test-window-query',
   [
     'test-window-query.c',
-    '../src/kasasa-hyprctl.c',
-    '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-wayland-stubs.c',
     hyprland_protocol_gen,
   ],
   include_directories: include_directories('../src', '.'),
+  link_with: kasasa_query_lib,
   dependencies: [
     glib_dep,
     json_glib_dep,
@@ -199,15 +197,14 @@ hyprland_capture_test = executable(
   'test-hyprland-capture',
   [
     'test-hyprland-capture.c',
-    '../src/kasasa-hyprctl.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
-    '../src/kasasa-window-query.c',
     '../src/kasasa-wayland-stubs.c',
     hyprland_protocol_gen,
   ],
   c_args: ['-DKASASA_ENABLE_TESTS'],
   include_directories: include_directories('../src', '.'),
+  link_with: kasasa_query_lib,
   dependencies: [
     gtk_dep,
     json_glib_dep,
@@ -230,21 +227,19 @@ gtk_screenshot_test = executable(
   'test-gtk-screenshot',
   [
     'test-gtk-screenshot.c',
-    '../src/kasasa-hyprctl.c',
     '../src/kasasa-content.c',
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
     '../src/kasasa-screencast.c',
     '../src/kasasa-crop-paintable.c',
     '../src/kasasa-dmabuf-paintable.c',
-    '../src/kasasa-source.c',
-    '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-wayland-stubs.c',
     hyprland_protocol_gen,
   ],
   c_args: ['-DKASASA_ENABLE_TESTS'],
   include_directories: include_directories('../src', '.'),
+  link_with: [kasasa_core_lib, kasasa_query_lib],
   dependencies: [
     adwaita_dep,
     gstreamer_dep,
@@ -274,16 +269,14 @@ gtk_application_test = executable(
   'test-gtk-application',
   [
     'test-gtk-application.c',
-    '../src/kasasa-cli.c',
-    '../src/kasasa-hyprctl.c',
     '../src/kasasa-application.c',
-    '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-wayland-stubs.c',
     hyprland_protocol_gen,
   ],
   include_directories: include_directories('../src', '.'),
+  link_with: [kasasa_query_lib, kasasa_cli_lib],
   dependencies: [
     adwaita_dep,
     json_glib_dep,
@@ -318,11 +311,11 @@ gtk_preferences_test = executable(
   'test-gtk-preferences',
   [
     'test-gtk-preferences.c',
-    '../src/kasasa-language.c',
     '../src/kasasa-preferences.c',
     test_app_resources,
   ],
   include_directories: include_directories('../src'),
+  link_with: kasasa_core_lib,
   dependencies: adwaita_dep,
 )
 
@@ -345,7 +338,6 @@ gtk_content_container_test = executable(
   [
     'test-gtk-content-container.c',
     '../src/kasasa-capture-controller.c',
-    '../src/kasasa-hyprctl.c',
     '../src/kasasa-content-container.c',
     '../src/kasasa-region-capture.c',
     '../src/kasasa-content.c',
@@ -354,8 +346,6 @@ gtk_content_container_test = executable(
     '../src/kasasa-screencast.c',
     '../src/kasasa-crop-paintable.c',
     '../src/kasasa-dmabuf-paintable.c',
-    '../src/kasasa-source.c',
-    '../src/kasasa-window-query.c',
     '../src/kasasa-window-picker.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
@@ -364,6 +354,7 @@ gtk_content_container_test = executable(
     test_app_resources,
   ],
   include_directories: include_directories('../src', '.'),
+  link_with: [kasasa_core_lib, kasasa_query_lib],
   dependencies: [
     adwaita_dep,
     gstreamer_dep,
@@ -395,12 +386,8 @@ gtk_window_test = executable(
   'test-gtk-window',
   [
     'test-gtk-window.c',
-    '../src/kasasa-cli.c',
-    '../src/kasasa-hyprctl.c',
     '../src/kasasa-application.c',
-    '../src/kasasa-language.c',
     '../src/kasasa-window.c',
-    '../src/kasasa-window-layout.c',
     '../src/kasasa-preferences.c',
     '../src/kasasa-capture-controller.c',
     '../src/kasasa-content-container.c',
@@ -411,9 +398,6 @@ gtk_window_test = executable(
     '../src/kasasa-screencast.c',
     '../src/kasasa-crop-paintable.c',
     '../src/kasasa-dmabuf-paintable.c',
-    '../src/kasasa-source.c',
-    '../src/kasasa-zoom.c',
-    '../src/kasasa-window-query.c',
     '../src/kasasa-window-picker.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
@@ -422,6 +406,7 @@ gtk_window_test = executable(
     test_app_resources,
   ],
   include_directories: include_directories('../src', '.'),
+  link_with: [kasasa_core_lib, kasasa_query_lib, kasasa_cli_lib],
   dependencies: [
     adwaita_dep,
     gstreamer_dep,

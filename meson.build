@@ -83,6 +83,42 @@ foreach arg: test_c_args
 endforeach
 add_project_arguments(project_c_args, language: 'c')
 
+kasasa_query_lib = static_library(
+  'kasasa-query',
+  [
+    'src/kasasa-hyprctl.c',
+    'src/kasasa-window-query.c',
+  ],
+  include_directories: include_directories('src'),
+  dependencies: [
+    dependency('glib-2.0'),
+    dependency('json-glib-1.0'),
+  ],
+)
+
+kasasa_cli_lib = static_library(
+  'kasasa-cli',
+  'src/kasasa-cli.c',
+  include_directories: include_directories('src'),
+  dependencies: dependency('glib-2.0'),
+  link_with: kasasa_query_lib,
+)
+
+kasasa_core_lib = static_library(
+  'kasasa-core',
+  [
+    'src/kasasa-language.c',
+    'src/kasasa-source.c',
+    'src/kasasa-zoom.c',
+    'src/kasasa-window-layout.c',
+  ],
+  include_directories: include_directories('src'),
+  dependencies: [
+    dependency('gio-2.0'),
+    cc.find_library('m', required: true),
+  ],
+)
+
 subdir('data')
 subdir('src')
 subdir('po')
