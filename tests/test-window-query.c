@@ -19,8 +19,10 @@
  */
 
 #include "kasasa-hyprland-stream.h"
+#include "kasasa-hyprctl.h"
 #include "kasasa-window-query.h"
 
+#include <gio/gio.h>
 #include <glib/gstdio.h>
 #include <string.h>
 
@@ -349,6 +351,42 @@ test_live_active_skips_client_listing (void)
 }
 
 static void
+test_hyprctl_query_times_out (void)
+{
+  static const gchar script[] =
+    "#!/bin/sh\n"
+    "sleep 10\n";
+  const gchar *argv[2];
+  g_autofree gchar *tmp_dir = NULL;
+  g_autofree gchar *script_path = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *output = NULL;
+  gint64 started;
+  gint64 elapsed;
+
+  tmp_dir = g_dir_make_tmp ("kasasa-hyprctl-test-XXXXXX", &error);
+  g_assert_no_error (error);
+  script_path = g_build_filename (tmp_dir, "hyprctl", NULL);
+  g_assert_true (g_file_set_contents (script_path, script, -1, &error));
+  g_assert_no_error (error);
+  g_assert_cmpint (g_chmod (script_path, 0700), ==, 0);
+
+  argv[0] = script_path;
+  argv[1] = NULL;
+  started = g_get_monotonic_time ();
+  output = kasasa_hyprctl_query (argv, &error);
+  elapsed = g_get_monotonic_time () - started;
+
+  g_assert_null (output);
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT);
+  g_assert_cmpint (elapsed, <, 8 * G_TIME_SPAN_SECOND);
+
+  g_clear_error (&error);
+  g_assert_cmpint (g_remove (script_path), ==, 0);
+  g_assert_cmpint (g_rmdir (tmp_dir), ==, 0);
+}
+
+static void
 ignore_stream_frame (gpointer                    user_data,
                      const guint8               *data,
                      gint                        width,
@@ -483,6 +521,8 @@ main (int argc, char **argv)
                    test_monitor_parse_resolve_and_format);
   g_test_add_func ("/unit/window-query/live-active",
                    test_live_active_skips_client_listing);
+  g_test_add_func ("/unit/hyprctl/query-timeout",
+                   test_hyprctl_query_times_out);
   g_test_add_func ("/unit/hyprland-stream/connection-failure",
                    test_stream_reports_connection_failure);
   g_test_add_func ("/unit/hyprland-stream/output-connection-failure",
