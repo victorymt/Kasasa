@@ -170,6 +170,7 @@ window_query_test = executable(
   'test-window-query',
   [
     'test-window-query.c',
+    '../src/kasasa-hyprctl.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-wayland-stubs.c',
@@ -198,6 +199,7 @@ hyprland_capture_test = executable(
   'test-hyprland-capture',
   [
     'test-hyprland-capture.c',
+    '../src/kasasa-hyprctl.c',
     '../src/kasasa-hyprland-capture.c',
     '../src/kasasa-hyprland-stream.c',
     '../src/kasasa-window-query.c',
@@ -228,6 +230,7 @@ gtk_screenshot_test = executable(
   'test-gtk-screenshot',
   [
     'test-gtk-screenshot.c',
+    '../src/kasasa-hyprctl.c',
     '../src/kasasa-content.c',
     '../src/kasasa-image.c',
     '../src/kasasa-screenshot.c',
@@ -271,6 +274,8 @@ gtk_application_test = executable(
   'test-gtk-application',
   [
     'test-gtk-application.c',
+    '../src/kasasa-cli.c',
+    '../src/kasasa-hyprctl.c',
     '../src/kasasa-application.c',
     '../src/kasasa-window-query.c',
     '../src/kasasa-hyprland-capture.c',
@@ -340,6 +345,7 @@ gtk_content_container_test = executable(
   [
     'test-gtk-content-container.c',
     '../src/kasasa-capture-controller.c',
+    '../src/kasasa-hyprctl.c',
     '../src/kasasa-content-container.c',
     '../src/kasasa-region-capture.c',
     '../src/kasasa-content.c',
@@ -389,6 +395,8 @@ gtk_window_test = executable(
   'test-gtk-window',
   [
     'test-gtk-window.c',
+    '../src/kasasa-cli.c',
+    '../src/kasasa-hyprctl.c',
     '../src/kasasa-application.c',
     '../src/kasasa-language.c',
     '../src/kasasa-window.c',

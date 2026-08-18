@@ -24,6 +24,7 @@
 #include <glib/gi18n.h>
 #include <string.h>
 
+#include "kasasa-hyprctl.h"
 #include "kasasa-window-query.h"
 
 G_DEFINE_QUARK (kasasa-window-query-error-quark, kasasa_window_query_error)
@@ -434,36 +435,6 @@ kasasa_monitor_query_parse_json (const gchar *json,
   return monitors;
 }
 
-static gchar *
-run_hyprctl (const gchar *const *argv,
-             GError            **error)
-{
-  g_autofree gchar *stdout_buf = NULL;
-  g_autofree gchar *stderr_buf = NULL;
-  gint status = 0;
-
-  if (!g_spawn_sync (NULL,
-                     (gchar **) argv,
-                     NULL,
-                     G_SPAWN_SEARCH_PATH,
-                     NULL,
-                     NULL,
-                     &stdout_buf,
-                     &stderr_buf,
-                     &status,
-                     error))
-    return NULL;
-
-  if (!g_spawn_check_wait_status (status, error))
-    {
-      if (stderr_buf != NULL && *stderr_buf != '\0')
-        g_prefix_error (error, "%s: ", g_strstrip (stderr_buf));
-      return NULL;
-    }
-
-  return g_steal_pointer (&stdout_buf);
-}
-
 static void
 wrap_hyprctl_error (GError **error)
 {
@@ -483,13 +454,7 @@ wrap_hyprctl_error (GError **error)
 gboolean
 kasasa_window_query_backend_available (void)
 {
-  g_autofree gchar *hyprctl = NULL;
-  const gchar *instance_signature = g_getenv ("HYPRLAND_INSTANCE_SIGNATURE");
-
-  hyprctl = g_find_program_in_path ("hyprctl");
-  return hyprctl != NULL
-         && instance_signature != NULL
-         && *instance_signature != '\0';
+  return kasasa_hyprctl_available ();
 }
 
 GPtrArray *
@@ -507,7 +472,7 @@ kasasa_window_query_list_clients (GError **error)
       return NULL;
     }
 
-  json = run_hyprctl (argv, error);
+  json = kasasa_hyprctl_query (argv, error);
   if (json == NULL)
     {
       wrap_hyprctl_error (error);
@@ -532,7 +497,7 @@ kasasa_window_query_get_active (GError **error)
       return NULL;
     }
 
-  json = run_hyprctl (argv, error);
+  json = kasasa_hyprctl_query (argv, error);
   if (json == NULL)
     {
       wrap_hyprctl_error (error);
@@ -557,7 +522,7 @@ kasasa_monitor_query_list (GError **error)
       return NULL;
     }
 
-  json = run_hyprctl (argv, error);
+  json = kasasa_hyprctl_query (argv, error);
   if (json == NULL)
     {
       wrap_hyprctl_error (error);

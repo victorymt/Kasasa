@@ -25,17 +25,12 @@
 #include <stdio.h>
 
 #include "kasasa-application.h"
+#include "kasasa-cli.h"
 #include "kasasa-hyprland-capture.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-preferences.h"
 #include "kasasa-window-query.h"
 #include "kasasa-window.h"
-
-/* Exit codes for CLI utilities */
-#define KASASA_EXIT_OK            0
-#define KASASA_EXIT_ERROR         1
-#define KASASA_EXIT_MATCH         2
-#define KASASA_EXIT_UNAVAILABLE   3
 
 struct _KasasaApplication
 {
@@ -60,101 +55,6 @@ kasasa_application_new (const char *application_id)
                        "application-id", application_id,
                        "flags", G_APPLICATION_HANDLES_COMMAND_LINE,
                        NULL);
-}
-
-static int
-query_error_to_exit_code (const GError *error)
-{
-  if (error == NULL)
-    return KASASA_EXIT_ERROR;
-
-  if (g_error_matches (error, KASASA_WINDOW_QUERY_ERROR,
-                       KASASA_WINDOW_QUERY_ERROR_UNAVAILABLE))
-    return KASASA_EXIT_UNAVAILABLE;
-
-  if (g_error_matches (error, KASASA_WINDOW_QUERY_ERROR,
-                       KASASA_WINDOW_QUERY_ERROR_NO_MATCH)
-      || g_error_matches (error, KASASA_WINDOW_QUERY_ERROR,
-                          KASASA_WINDOW_QUERY_ERROR_AMBIGUOUS))
-    return KASASA_EXIT_MATCH;
-
-  return KASASA_EXIT_ERROR;
-}
-
-static int
-run_list_windows (gboolean as_json)
-{
-  g_autoptr (GPtrArray) clients = NULL;
-  g_autoptr (GError) error = NULL;
-  g_autofree gchar *text = NULL;
-
-  clients = kasasa_window_query_list_clients (&error);
-  if (clients == NULL)
-    {
-      g_printerr ("%s\n", error != NULL ? error->message : _("Failed to list windows"));
-      return query_error_to_exit_code (error);
-    }
-
-  text = as_json
-         ? kasasa_window_query_format_json (clients)
-         : kasasa_window_query_format_table (clients);
-  g_print ("%s", text);
-  if (as_json)
-    g_print ("\n");
-
-  return KASASA_EXIT_OK;
-}
-
-static int
-run_list_monitors (gboolean as_json)
-{
-  g_autoptr (GPtrArray) monitors = NULL;
-  g_autoptr (GError) error = NULL;
-  g_autofree gchar *text = NULL;
-
-  monitors = kasasa_monitor_query_list (&error);
-  if (monitors == NULL)
-    {
-      g_printerr ("%s\n",
-                  error != NULL ? error->message : _("Failed to list monitors"));
-      return query_error_to_exit_code (error);
-    }
-
-  text = as_json
-         ? kasasa_monitor_query_format_json (monitors)
-         : kasasa_monitor_query_format_table (monitors);
-  g_print ("%s", text);
-  if (as_json)
-    g_print ("\n");
-
-  return KASASA_EXIT_OK;
-}
-
-static const gchar *
-validate_cli_options (gboolean     screencast,
-                      gboolean     list_windows,
-                      gboolean     list_monitors,
-                      gboolean     list_json,
-                      const gchar *window_spec,
-                      const gchar *monitor_spec)
-{
-  if (list_windows && list_monitors)
-    return _("--list-windows and --list-monitors are mutually exclusive");
-
-  if (list_json && !list_windows && !list_monitors)
-    return _("--json requires --list-windows or --list-monitors");
-
-  if (window_spec != NULL && monitor_spec != NULL)
-    return _("--window and --monitor are mutually exclusive");
-
-  if (monitor_spec != NULL && !screencast)
-    return _("--monitor requires --screencast");
-
-  if ((list_windows || list_monitors)
-      && (window_spec != NULL || monitor_spec != NULL))
-    return _("Listing options cannot be combined with a capture target");
-
-  return NULL;
 }
 
 static GtkWindow *
@@ -191,7 +91,7 @@ present_targeted_capture (KasasaApplication *self,
   if (client == NULL)
     {
       g_printerr ("%s\n", error != NULL ? error->message : _("Failed to resolve window"));
-      return query_error_to_exit_code (error);
+      return kasasa_cli_query_error_to_exit_code (error);
     }
 
   if (screencast)
@@ -202,7 +102,7 @@ present_targeted_capture (KasasaApplication *self,
         {
           g_printerr ("%s\n",
                       _("Targeted live screencast requires Hyprland Wayland"));
-          return KASASA_EXIT_UNAVAILABLE;
+          return KASASA_CLI_EXIT_UNAVAILABLE;
         }
 
       if (!kasasa_hyprland_stream_handle_from_address (client->address,
@@ -211,18 +111,18 @@ present_targeted_capture (KasasaApplication *self,
         {
           g_printerr ("%s\n",
                       error != NULL ? error->message : _("Invalid window address"));
-          return query_error_to_exit_code (error);
+          return kasasa_cli_query_error_to_exit_code (error);
         }
 
       window = ensure_pin_window (self);
       if (!KASASA_IS_WINDOW (window))
-        return KASASA_EXIT_ERROR;
+        return KASASA_CLI_EXIT_ERROR;
 
       kasasa_window_load_first_hyprland_screencast (KASASA_WINDOW (window),
                                                     handle,
                                                     client->width,
                                                     client->height);
-      return KASASA_EXIT_OK;
+      return KASASA_CLI_EXIT_OK;
     }
   else
     {
@@ -233,15 +133,15 @@ present_targeted_capture (KasasaApplication *self,
         {
           g_printerr ("%s\n",
                       error != NULL ? error->message : _("Failed to capture window"));
-          return query_error_to_exit_code (error);
+          return kasasa_cli_query_error_to_exit_code (error);
         }
 
       window = ensure_pin_window (self);
       if (!KASASA_IS_WINDOW (window))
-        return KASASA_EXIT_ERROR;
+        return KASASA_CLI_EXIT_ERROR;
 
       kasasa_window_load_first_screenshot_uri (KASASA_WINDOW (window), uri);
-      return KASASA_EXIT_OK;
+      return KASASA_CLI_EXIT_OK;
     }
 }
 
@@ -258,26 +158,26 @@ present_monitor_capture (KasasaApplication *self,
     {
       g_printerr ("%s\n",
                   error != NULL ? error->message : _("Failed to resolve monitor"));
-      return query_error_to_exit_code (error);
+      return kasasa_cli_query_error_to_exit_code (error);
     }
 
   if (!kasasa_hyprland_stream_available ())
     {
       g_printerr ("%s\n",
                   _("Targeted monitor screencast requires Hyprland Wayland"));
-      return KASASA_EXIT_UNAVAILABLE;
+      return KASASA_CLI_EXIT_UNAVAILABLE;
     }
 
   window = ensure_pin_window (self);
   if (!KASASA_IS_WINDOW (window))
-    return KASASA_EXIT_ERROR;
+    return KASASA_CLI_EXIT_ERROR;
 
   kasasa_window_load_first_hyprland_monitor_screencast (
     KASASA_WINDOW (window),
     monitor->name,
     monitor->width,
     monitor->height);
-  return KASASA_EXIT_OK;
+  return KASASA_CLI_EXIT_OK;
 }
 
 static void
@@ -322,8 +222,8 @@ kasasa_application_activate (GApplication *app)
   if (self->list_windows || self->list_monitors)
     {
       int code = self->list_windows
-                 ? run_list_windows (self->list_json)
-                 : run_list_monitors (self->list_json);
+                 ? kasasa_cli_run_list_windows (self->list_json)
+                 : kasasa_cli_run_list_monitors (self->list_json);
       g_application_quit (app);
       /* g_application_run will still return 0 from activate; list is handled
        * primarily in command-line / local options. */
@@ -373,23 +273,23 @@ kasasa_application_handle_local_options (GApplication *app,
       && monitor_spec != NULL)
     self->monitor_spec = g_strdup (monitor_spec);
 
-  validation_error = validate_cli_options (self->start_with_screencast,
-                                           self->list_windows,
-                                           self->list_monitors,
-                                           self->list_json,
-                                           self->window_spec,
-                                           self->monitor_spec);
+  validation_error = kasasa_cli_validate_options (self->start_with_screencast,
+                                                  self->list_windows,
+                                                  self->list_monitors,
+                                                  self->list_json,
+                                                  self->window_spec,
+                                                  self->monitor_spec);
   if (validation_error != NULL)
     {
       g_printerr ("%s\n", validation_error);
-      return KASASA_EXIT_ERROR;
+      return KASASA_CLI_EXIT_ERROR;
     }
 
   /* Pure listing: no remote activation / no GUI. */
   if (self->list_windows)
-    return run_list_windows (self->list_json);
+    return kasasa_cli_run_list_windows (self->list_json);
   if (self->list_monitors)
-    return run_list_monitors (self->list_json);
+    return kasasa_cli_run_list_monitors (self->list_json);
 
   return -1;
 }
@@ -416,24 +316,24 @@ kasasa_application_command_line (GApplication            *app,
   g_variant_dict_lookup (options, "window", "&s", &window_spec);
   g_variant_dict_lookup (options, "monitor", "&s", &monitor_spec);
 
-  validation_error = validate_cli_options (start_with_screencast,
-                                           list_windows,
-                                           list_monitors,
-                                           list_json,
-                                           window_spec,
-                                           monitor_spec);
+  validation_error = kasasa_cli_validate_options (start_with_screencast,
+                                                  list_windows,
+                                                  list_monitors,
+                                                  list_json,
+                                                  window_spec,
+                                                  monitor_spec);
   if (validation_error != NULL)
     {
       g_application_command_line_printerr (cmdline,
                                            "%s\n",
                                            validation_error);
-      return KASASA_EXIT_ERROR;
+      return KASASA_CLI_EXIT_ERROR;
     }
 
   if (list_windows)
-    return run_list_windows (list_json);
+    return kasasa_cli_run_list_windows (list_json);
   if (list_monitors)
-    return run_list_monitors (list_json);
+    return kasasa_cli_run_list_monitors (list_json);
 
   if (window_spec != NULL)
     {
@@ -444,7 +344,7 @@ kasasa_application_command_line (GApplication            *app,
     return present_monitor_capture (self, monitor_spec);
 
   present_or_create_window (self, start_with_screencast);
-  return KASASA_EXIT_OK;
+  return KASASA_CLI_EXIT_OK;
 }
 
 static void
