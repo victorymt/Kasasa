@@ -85,21 +85,6 @@ static KasasaSwitchResizeMode last_switch_resize_mode;
 static gboolean last_resize_for_zoom;
 static gboolean last_resize_continuous;
 
-static gboolean
-fake_resize_request (gpointer               user_data,
-                     gdouble                new_height,
-                     gdouble                new_width,
-                     KasasaSwitchResizeMode mode,
-                     gboolean               for_zoom,
-                     gboolean               continuous)
-{
-  switch_resize_calls++;
-  last_switch_resize_mode = mode;
-  last_resize_for_zoom = for_zoom;
-  last_resize_continuous = continuous;
-  return TRUE;
-}
-
 static void
 fake_take_screenshot (GCancellable        *cancellable,
                       GAsyncReadyCallback  callback,
@@ -258,7 +243,108 @@ static const KasasaNativeCaptureOps fake_native_capture_ops = {
   .window_handle_from_address = fake_native_window_handle,
 };
 
-/* The container state machine does not need real window animations. */
+static gboolean
+fake_host_is_miniaturized (gpointer user_data)
+{
+  return FALSE;
+}
+
+static void
+fake_host_hide_window (gpointer            user_data,
+                       gboolean            hide,
+                       HideWindowCallback  callback,
+                       GObject            *callback_data)
+{
+  if (callback != NULL)
+    callback (callback_data);
+}
+
+static void
+fake_host_change_opacity (gpointer user_data,
+                          Opacity  opacity_direction)
+{
+}
+
+static gboolean
+fake_host_resize (gpointer               user_data,
+                  gdouble                new_height,
+                  gdouble                new_width,
+                  KasasaSwitchResizeMode mode,
+                  gboolean               for_zoom,
+                  gboolean               continuous)
+{
+  switch_resize_calls++;
+  last_switch_resize_mode = mode;
+  last_resize_for_zoom = for_zoom;
+  last_resize_continuous = continuous;
+  return TRUE;
+}
+
+static void
+fake_host_reset_zoom (gpointer user_data)
+{
+}
+
+static void
+fake_host_auto_discard_window (gpointer user_data)
+{
+}
+
+static void
+fake_host_miniaturize_window (gpointer user_data,
+                              gboolean miniaturize)
+{
+}
+
+static void
+fake_host_block_miniaturization (gpointer user_data,
+                                 gboolean block)
+{
+}
+
+static void
+fake_host_set_controls_popup_active (gpointer user_data,
+                                     gboolean active)
+{
+}
+
+static void
+fake_host_set_crop_mode (gpointer user_data,
+                         gboolean active)
+{
+}
+
+static void
+fake_host_finish_initial_reveal (gpointer user_data)
+{
+  Fixture *fixture = user_data;
+
+  gtk_widget_set_opacity (GTK_WIDGET (fixture->window), 1.0);
+}
+
+static gboolean
+fake_host_is_initial_reveal_pending (gpointer user_data)
+{
+  return FALSE;
+}
+
+static const KasasaContentHostOps fake_host_ops = {
+  .is_miniaturized = fake_host_is_miniaturized,
+  .hide_window = fake_host_hide_window,
+  .change_opacity = fake_host_change_opacity,
+  .resize = fake_host_resize,
+  .reset_zoom = fake_host_reset_zoom,
+  .auto_discard_window = fake_host_auto_discard_window,
+  .miniaturize_window = fake_host_miniaturize_window,
+  .block_miniaturization = fake_host_block_miniaturization,
+  .set_controls_popup_active = fake_host_set_controls_popup_active,
+  .set_crop_mode = fake_host_set_crop_mode,
+  .finish_initial_reveal = fake_host_finish_initial_reveal,
+  .is_initial_reveal_pending = fake_host_is_initial_reveal_pending,
+};
+
+/* Screenshot cleanup still has its own window dependency; keep that test
+ * seam minimal while the screenshot host API is extracted separately. */
 GType
 kasasa_window_get_type (void)
 {
@@ -275,102 +361,6 @@ kasasa_window_get_window_reference (GtkWidget *widget)
 
 gboolean
 kasasa_window_get_trash_button_active (KasasaWindow *window)
-{
-  return FALSE;
-}
-
-gboolean
-kasasa_window_is_miniaturized (KasasaWindow *window)
-{
-  return FALSE;
-}
-
-void
-kasasa_window_hide_window (KasasaWindow       *window,
-                           gboolean            hide,
-                           HideWindowCallback  callback,
-                           GObject             *callback_data)
-{
-  if (callback != NULL)
-    callback (callback_data);
-}
-
-void
-kasasa_window_change_opacity (KasasaWindow *window,
-                              Opacity       opacity_direction)
-{
-}
-
-gboolean
-kasasa_window_resize_window_scaling (KasasaWindow *window,
-                                     gdouble       new_height,
-                                     gdouble       new_width)
-{
-  return TRUE;
-}
-
-gboolean
-kasasa_window_resize_window_scaling_for_zoom (KasasaWindow *window,
-                                              gdouble       new_height,
-                                              gdouble       new_width,
-                                              gboolean      continuous)
-{
-  return TRUE;
-}
-
-gboolean
-kasasa_window_resize_for_content_switch (KasasaWindow          *window,
-                                         gdouble                new_height,
-                                         gdouble                new_width,
-                                         KasasaSwitchResizeMode mode)
-{
-  switch_resize_calls++;
-  last_switch_resize_mode = mode;
-  return TRUE;
-}
-
-void
-kasasa_window_reset_zoom (KasasaWindow *window)
-{
-}
-
-void
-kasasa_window_auto_discard_window (KasasaWindow *window)
-{
-}
-
-void
-kasasa_window_miniaturize_window (KasasaWindow *window,
-                                  gboolean      miniaturize)
-{
-}
-
-void
-kasasa_window_block_miniaturization (KasasaWindow *window,
-                                     gboolean      block)
-{
-}
-
-void
-kasasa_window_set_controls_popup_active (KasasaWindow *window,
-                                         gboolean      active)
-{
-}
-
-void
-kasasa_window_set_crop_mode (KasasaWindow *window,
-                             gboolean      active)
-{
-}
-
-void
-kasasa_window_finish_initial_reveal (KasasaWindow *window)
-{
-  gtk_widget_set_opacity (GTK_WIDGET (window), 1.0);
-}
-
-gboolean
-kasasa_window_is_initial_reveal_pending (KasasaWindow *window)
 {
   return FALSE;
 }
@@ -415,10 +405,10 @@ fixture_setup (Fixture *fixture,
 
   fixture->window = GTK_WINDOW (gtk_window_new ());
   fixture->container = kasasa_content_container_new ();
-  kasasa_content_container_set_resize_handler (fixture->container,
-                                               fake_resize_request,
-                                               fixture,
-                                               NULL);
+  kasasa_content_container_set_host (fixture->container,
+                                     &fake_host_ops,
+                                     fixture,
+                                     NULL);
   gtk_window_set_child (fixture->window, GTK_WIDGET (fixture->container));
 
   fixture->carousel = ADW_CAROUSEL (

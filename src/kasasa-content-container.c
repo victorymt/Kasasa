@@ -27,7 +27,6 @@
 #include "kasasa-hyprland-capture.h"
 #include "kasasa-hyprland-stream.h"
 #include "kasasa-region-capture.h"
-#include "kasasa-window.h"
 #include "kasasa-screenshot.h"
 #include "kasasa-screencast.h"
 #include "kasasa-source.h"
@@ -77,9 +76,9 @@ struct _KasasaContentContainer
   gboolean                 delayed_screenshot_pending;
   KasasaNativeCaptureOps     native_capture_ops;
   KasasaRegionCaptureOps     region_capture_ops;
-  KasasaContentResizeFunc    resize_callback;
-  gpointer                   resize_data;
-  GDestroyNotify             resize_data_destroy;
+  KasasaContentHostOps       host_ops;
+  gpointer                   host_data;
+  GDestroyNotify             host_data_destroy;
 };
 
 typedef enum
@@ -152,7 +151,7 @@ static void show_operation_error (KasasaContentContainer *self,
                                   const gchar            *fallback_message,
                                   const GError           *error);
 static void fail_first_screencast (KasasaContentContainer *self,
-                                   KasasaWindow           *window,
+                                   GtkWindow              *window,
                                    const gchar            *fallback_message,
                                    const GError           *error);
 static void begin_native_capture_request (KasasaContentContainer *self,
@@ -309,12 +308,100 @@ show_delayed_screenshot_toast (KasasaContentContainer *self,
                                g_object_ref (self->delayed_screenshot_toast));
 }
 
-static KasasaWindow *
+static GtkWindow *
 get_root_window (KasasaContentContainer *self)
 {
   GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
 
-  return KASASA_IS_WINDOW (root) ? KASASA_WINDOW (root) : NULL;
+  return GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
+}
+
+static gboolean
+host_is_miniaturized (KasasaContentContainer *self)
+{
+  return self->host_ops.is_miniaturized != NULL
+         && self->host_ops.is_miniaturized (self->host_data);
+}
+
+static void
+host_hide_window (KasasaContentContainer *self,
+                  gboolean                hide,
+                  HideWindowCallback      callback,
+                  GObject                *callback_data)
+{
+  if (self->host_ops.hide_window != NULL)
+    self->host_ops.hide_window (self->host_data,
+                                hide,
+                                callback,
+                                callback_data);
+}
+
+static void
+host_change_opacity (KasasaContentContainer *self,
+                     Opacity                direction)
+{
+  if (self->host_ops.change_opacity != NULL)
+    self->host_ops.change_opacity (self->host_data, direction);
+}
+
+static void
+host_reset_zoom (KasasaContentContainer *self)
+{
+  if (self->host_ops.reset_zoom != NULL)
+    self->host_ops.reset_zoom (self->host_data);
+}
+
+static void
+host_auto_discard_window (KasasaContentContainer *self)
+{
+  if (self->host_ops.auto_discard_window != NULL)
+    self->host_ops.auto_discard_window (self->host_data);
+}
+
+static void
+host_miniaturize_window (KasasaContentContainer *self,
+                         gboolean                miniaturize)
+{
+  if (self->host_ops.miniaturize_window != NULL)
+    self->host_ops.miniaturize_window (self->host_data, miniaturize);
+}
+
+static void
+host_block_miniaturization (KasasaContentContainer *self,
+                            gboolean                block)
+{
+  if (self->host_ops.block_miniaturization != NULL)
+    self->host_ops.block_miniaturization (self->host_data, block);
+}
+
+static void
+host_set_controls_popup_active (KasasaContentContainer *self,
+                                gboolean                active)
+{
+  if (self->host_ops.set_controls_popup_active != NULL)
+    self->host_ops.set_controls_popup_active (self->host_data, active);
+}
+
+static void
+host_set_crop_mode (KasasaContentContainer *self,
+                    gboolean                active)
+{
+  if (self->host_ops.set_crop_mode != NULL)
+    self->host_ops.set_crop_mode (self->host_data, active);
+}
+
+static void
+host_finish_initial_reveal (KasasaContentContainer *self)
+{
+  if (self->host_ops.finish_initial_reveal != NULL)
+    self->host_ops.finish_initial_reveal (self->host_data);
+}
+
+static gboolean
+host_is_initial_reveal_pending (KasasaContentContainer *self)
+{
+  return self->host_ops.is_initial_reveal_pending != NULL
+         && self->host_ops.is_initial_reveal_pending (self->host_data);
 }
 
 gboolean
@@ -346,15 +433,15 @@ request_window_resize (KasasaContentContainer *self,
   g_return_val_if_fail (KASASA_IS_CONTENT_CONTAINER (self), FALSE);
 
   content = get_current_content (self);
-  if (!KASASA_IS_CONTENT (content) || self->resize_callback == NULL)
+  if (!KASASA_IS_CONTENT (content) || self->host_ops.resize == NULL)
     return FALSE;
 
   kasasa_content_get_dimensions (KASASA_CONTENT (content),
                                  &new_height,
                                  &new_width);
 
-  return self->resize_callback (
-    self->resize_data,
+  return self->host_ops.resize (
+    self->host_data,
     (gdouble) new_height,
     (gdouble) new_width,
     KASASA_SWITCH_RESIZE_FIT,
@@ -596,21 +683,21 @@ kasasa_content_container_set_region_capture_ops (
 }
 
 void
-kasasa_content_container_set_resize_handler (
+kasasa_content_container_set_host (
   KasasaContentContainer *self,
-  KasasaContentResizeFunc callback,
+  const KasasaContentHostOps *ops,
   gpointer                user_data,
   GDestroyNotify          destroy)
 {
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
-  g_return_if_fail (callback != NULL || user_data == NULL);
+  g_return_if_fail (ops != NULL || user_data == NULL);
 
-  if (self->resize_data_destroy != NULL)
-    self->resize_data_destroy (self->resize_data);
+  if (self->host_data_destroy != NULL)
+    self->host_data_destroy (self->host_data);
 
-  self->resize_callback = callback;
-  self->resize_data = callback != NULL ? user_data : NULL;
-  self->resize_data_destroy = callback != NULL ? destroy : NULL;
+  self->host_ops = ops != NULL ? *ops : (KasasaContentHostOps) { 0 };
+  self->host_data = ops != NULL ? user_data : NULL;
+  self->host_data_destroy = ops != NULL ? destroy : NULL;
 }
 
 static void
@@ -620,15 +707,14 @@ handle_taken_screenshot (KasasaContentContainer *self,
                          gboolean                retaking_screenshot,
                          KasasaScreenshotSource  source)
 {
-  KasasaWindow *window = NULL;
+  GtkWindow *window = NULL;
   g_autoptr (GError) error = NULL;
 
   window = get_root_window (self);
   if (window == NULL)
     return;
 
-  kasasa_window_hide_window (window, FALSE,
-                             NULL, NULL);
+  host_hide_window (self, FALSE, NULL, NULL);
 
   if (request_was_cancelled (capture_error)
       || (capture_error == NULL && uri == NULL))
@@ -703,7 +789,7 @@ handle_taken_screenshot (KasasaContentContainer *self,
     }
 
   // Set the focus to the retake_screenshot_button
-  gtk_window_set_focus (GTK_WINDOW (window), GTK_WIDGET (self->retake_screenshot_button));
+  gtk_window_set_focus (window, GTK_WIDGET (self->retake_screenshot_button));
 }
 
 static gboolean
@@ -781,11 +867,11 @@ static void
 finish_region_capture_interaction (KasasaContentContainer *self,
                                    KasasaRegionCaptureKind kind)
 {
-  KasasaWindow *window = get_root_window (self);
+  GtkWindow *window = get_root_window (self);
 
   self->region_capture_request_pending = FALSE;
   if (window != NULL)
-    kasasa_window_block_miniaturization (window, FALSE);
+    host_block_miniaturization (self, FALSE);
   if (kind == KASASA_REGION_CAPTURE_RETAKE)
     kasasa_content_container_carousel_set_interactive (self, TRUE);
   kasasa_content_container_update_toolbar_sensibility (self);
@@ -795,11 +881,11 @@ static void
 finish_native_capture_interaction (KasasaContentContainer *self,
                                    KasasaNativeCaptureKind kind)
 {
-  KasasaWindow *window = get_root_window (self);
+  GtkWindow *window = get_root_window (self);
 
   self->native_capture_request_pending = FALSE;
   if (window != NULL)
-    kasasa_window_block_miniaturization (window, FALSE);
+    host_block_miniaturization (self, FALSE);
   if (kind == KASASA_NATIVE_CAPTURE_RETAKE_SCREENSHOT)
     kasasa_content_container_carousel_set_interactive (self, TRUE);
   if (kind == KASASA_NATIVE_CAPTURE_DELAYED_SCREENSHOT)
@@ -812,7 +898,7 @@ finish_native_capture_interaction (KasasaContentContainer *self,
 }
 
 static void
-fail_first_screenshot (KasasaWindow *window,
+fail_first_screenshot (GtkWindow    *window,
                        const GError *error)
 {
   g_autoptr (GNotification) notification = NULL;
@@ -829,7 +915,7 @@ fail_first_screenshot (KasasaWindow *window,
   g_application_send_notification (g_application_get_default (),
                                    "io.github.kelvinnovais.Kasasa",
                                    notification);
-  gtk_window_close (GTK_WINDOW (window));
+  gtk_window_close (window);
 }
 
 static void
@@ -841,7 +927,7 @@ on_native_screenshot_captured (GObject      *source_object,
   g_autoptr (KasasaContentContainer) self = NULL;
   g_autoptr (GError) error = NULL;
   g_autofree gchar *uri = NULL;
-  KasasaWindow *window;
+  GtkWindow *window;
 
   uri = request->finish (result, &error);
   self = g_weak_ref_get (&request->container);
@@ -893,7 +979,7 @@ on_region_screenshot_captured (GObject      *source_object,
   g_autoptr (KasasaContentContainer) self = NULL;
   g_autoptr (GError) error = NULL;
   g_autofree gchar *uri = NULL;
-  KasasaWindow *window;
+  GtkWindow *window;
 
   uri = request->finish (result, &error);
   self = g_weak_ref_get (&request->container);
@@ -920,11 +1006,11 @@ on_region_screenshot_captured (GObject      *source_object,
           if (!request_was_cancelled (error))
             fail_first_screenshot (window, error);
           else
-            gtk_window_close (GTK_WINDOW (window));
+            gtk_window_close (window);
         }
       else
         {
-          kasasa_window_hide_window (window, FALSE, NULL, NULL);
+          host_hide_window (self, FALSE, NULL, NULL);
           load_first_screenshot_uri (self,
                                      uri,
                                      KASASA_SCREENSHOT_SOURCE_REGION);
@@ -1004,7 +1090,7 @@ capture_selected_screencast (KasasaContentContainer *self,
                              KasasaNativeCaptureKind kind)
 {
   g_autoptr (GError) error = NULL;
-  KasasaWindow *window = get_root_window (self);
+  GtkWindow *window = get_root_window (self);
   guint32 handle = 0;
 
   if (window == NULL)
@@ -1049,7 +1135,7 @@ on_native_window_selected (const KasasaWindowClient *client,
 {
   KasasaNativeCaptureRequest *request = user_data;
   g_autoptr (KasasaContentContainer) self = NULL;
-  KasasaWindow *window;
+  GtkWindow *window;
 
   self = g_weak_ref_get (&request->container);
   if (self == NULL)
@@ -1066,7 +1152,7 @@ on_native_window_selected (const KasasaWindowClient *client,
     {
       finish_native_capture_interaction (self, request->kind);
       if (native_capture_is_first (request->kind))
-        gtk_window_close (GTK_WINDOW (window));
+        gtk_window_close (window);
       return;
     }
 
@@ -1111,7 +1197,7 @@ begin_native_capture_request (KasasaContentContainer *self,
 {
   g_autoptr (GError) error = NULL;
   KasasaNativeCaptureRequest *request;
-  KasasaWindow *window;
+  GtkWindow *window;
 
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
 
@@ -1158,14 +1244,14 @@ begin_native_capture_request (KasasaContentContainer *self,
 
   gtk_popover_popdown (self->more_actions_popover);
   gtk_widget_set_sensitive (GTK_WIDGET (self->toolbar_overlay), FALSE);
-  kasasa_window_block_miniaturization (window, TRUE);
+  host_block_miniaturization (self, TRUE);
   if (kind == KASASA_NATIVE_CAPTURE_RETAKE_SCREENSHOT)
     kasasa_content_container_carousel_set_interactive (self, FALSE);
 
   self->native_capture_request_pending = TRUE;
   request = native_capture_request_new (self, kind);
   if (self->native_capture_ops.present_picker (
-        GTK_WINDOW (window),
+        window,
         native_capture_picker_title (kind),
         on_native_window_selected,
         request,
@@ -1196,7 +1282,7 @@ begin_region_capture_request (KasasaContentContainer *self,
                               KasasaRegionCaptureKind kind)
 {
   g_autoptr (GError) error = NULL;
-  KasasaWindow *window;
+  GtkWindow *window;
 
   g_return_if_fail (KASASA_IS_CONTENT_CONTAINER (self));
 
@@ -1236,7 +1322,7 @@ begin_region_capture_request (KasasaContentContainer *self,
 
   gtk_popover_popdown (self->more_actions_popover);
   gtk_widget_set_sensitive (GTK_WIDGET (self->toolbar_overlay), FALSE);
-  kasasa_window_block_miniaturization (window, TRUE);
+  host_block_miniaturization (self, TRUE);
   if (kind == KASASA_REGION_CAPTURE_RETAKE)
     kasasa_content_container_carousel_set_interactive (self, FALSE);
 
@@ -1244,10 +1330,10 @@ begin_region_capture_request (KasasaContentContainer *self,
   self->region_capture_cancellable = g_cancellable_new ();
   self->region_capture_kind = kind;
   self->region_capture_request_pending = TRUE;
-  kasasa_window_hide_window (window,
-                             TRUE,
-                             on_region_window_hidden,
-                             G_OBJECT (self));
+  host_hide_window (self,
+                    TRUE,
+                    on_region_window_hidden,
+                    G_OBJECT (self));
 }
 
 static void
@@ -1314,14 +1400,13 @@ on_screencast_new_dimension (KasasaScreencast *screencast,
                              gpointer          user_data)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
-  KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   GtkWidget *current_content = get_current_content (self);
-  gboolean miniaturized = kasasa_window_is_miniaturized (window);
+  gboolean miniaturized = host_is_miniaturized (self);
 
 
   if (current_content == GTK_WIDGET (screencast)
-      && !miniaturized && self->resize_callback != NULL)
-    self->resize_callback (self->resize_data,
+      && !miniaturized && self->host_ops.resize != NULL)
+    self->host_ops.resize (self->host_data,
                            (gdouble) new_height,
                            (gdouble) new_width,
                            KASASA_SWITCH_RESIZE_FIT,
@@ -1351,17 +1436,15 @@ static void
 finish_screencast_content (KasasaContentContainer *self,
                            KasasaScreencast        *screencast)
 {
-  KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   GtkWidget *current_content = get_current_content (self);
-  gboolean miniaturized = kasasa_window_is_miniaturized (window);
+  gboolean miniaturized = host_is_miniaturized (self);
   guint n_pages = adw_carousel_get_n_pages (self->carousel);
   guint screencast_idx = find_content_index (self, GTK_WIDGET (screencast));
 
   if (current_content == GTK_WIDGET (screencast)
       && kasasa_screencast_is_cropping (screencast))
     {
-      if (window != NULL)
-        kasasa_window_set_crop_mode (window, FALSE);
+      host_set_crop_mode (self, FALSE);
       kasasa_content_container_carousel_set_interactive (self, TRUE);
     }
 
@@ -1385,7 +1468,7 @@ finish_screencast_content (KasasaContentContainer *self,
       GtkWidget *neighbor_content = NULL;
       guint neighbor_idx;
 
-      kasasa_window_miniaturize_window (window, FALSE);
+      host_miniaturize_window (self, FALSE);
 
       if (screencast_idx == GTK_INVALID_LIST_POSITION)
         {
@@ -1405,7 +1488,7 @@ finish_screencast_content (KasasaContentContainer *self,
           adw_carousel_scroll_to (self->carousel, neighbor_content, TRUE);
 
           if (miniaturized)
-            kasasa_window_miniaturize_window (window, TRUE);
+            host_miniaturize_window (self, TRUE);
         }
     }
   else
@@ -1476,11 +1559,8 @@ on_crop_screencast_clicked (GtkButton *button,
   if (screencast != NULL
       && kasasa_screencast_begin_crop (screencast))
     {
-      KasasaWindow *window = get_root_window (self);
-
       kasasa_content_container_carousel_set_interactive (self, FALSE);
-      if (window != NULL)
-        kasasa_window_set_crop_mode (window, TRUE);
+      host_set_crop_mode (self, TRUE);
       kasasa_content_container_update_toolbar_sensibility (self);
       kasasa_content_container_request_window_resize (self);
     }
@@ -1506,12 +1586,9 @@ on_crop_cancel_clicked (GtkButton *button,
 
   if (screencast != NULL)
     {
-      KasasaWindow *window = get_root_window (self);
-
       kasasa_screencast_cancel_crop (screencast);
       kasasa_content_container_carousel_set_interactive (self, TRUE);
-      if (window != NULL)
-        kasasa_window_set_crop_mode (window, FALSE);
+      host_set_crop_mode (self, FALSE);
       kasasa_content_container_update_toolbar_sensibility (self);
       kasasa_content_container_request_window_resize (self);
     }
@@ -1527,11 +1604,8 @@ on_crop_confirm_clicked (GtkButton *button,
   if (screencast != NULL
       && kasasa_screencast_confirm_crop (screencast))
     {
-      KasasaWindow *window = get_root_window (self);
-
       kasasa_content_container_carousel_set_interactive (self, TRUE);
-      if (window != NULL)
-        kasasa_window_set_crop_mode (window, FALSE);
+      host_set_crop_mode (self, FALSE);
       kasasa_content_container_update_toolbar_sensibility (self);
       kasasa_content_container_request_window_resize (self);
     }
@@ -1539,7 +1613,7 @@ on_crop_confirm_clicked (GtkButton *button,
 
 static void
 fail_first_screencast (KasasaContentContainer *self,
-                       KasasaWindow           *window,
+                       GtkWindow              *window,
                        const gchar            *fallback_message,
                        const GError           *error)
 {
@@ -1564,7 +1638,7 @@ fail_first_screencast (KasasaContentContainer *self,
                                    "io.github.kelvinnovais.Kasasa",
                                    notification);
 
-  gtk_window_close (GTK_WINDOW (window));
+  gtk_window_close (window);
 }
 
 
@@ -1579,7 +1653,7 @@ load_first_screenshot_uri (KasasaContentContainer *self,
                            const gchar            *uri,
                            KasasaScreenshotSource  source)
 {
-  KasasaWindow *window = NULL;
+  GtkWindow *window = NULL;
   g_autoptr (GSettings) settings = NULL;
   g_autoptr (GError) error = NULL;
   g_autofree gchar *error_message = NULL;
@@ -1603,7 +1677,7 @@ load_first_screenshot_uri (KasasaContentContainer *self,
       goto FAIL;
     }
 
-  kasasa_window_reset_zoom (window);
+  host_reset_zoom (self);
 
   if (!append_screenshot (self, uri, source, &error))
     {
@@ -1614,12 +1688,12 @@ load_first_screenshot_uri (KasasaContentContainer *self,
 
   gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
   kasasa_content_container_request_window_resize (self);
-  kasasa_window_finish_initial_reveal (window);
+  host_finish_initial_reveal (self);
 
   if (g_settings_get_boolean (settings, "auto-discard-window"))
-    kasasa_window_auto_discard_window (window);
+    host_auto_discard_window (self);
 
-  kasasa_window_miniaturize_window (window, TRUE);
+  host_miniaturize_window (self, TRUE);
   return;
 
 FAIL:
@@ -1631,7 +1705,7 @@ FAIL:
   g_application_send_notification (g_application_get_default (),
                                    "io.github.kelvinnovais.Kasasa",
                                    notification);
-  gtk_window_close (GTK_WINDOW (window));
+  gtk_window_close (window);
 }
 
 void
@@ -1733,7 +1807,7 @@ kasasa_content_container_load_first_hyprland_monitor_screencast (
   gint                    width,
   gint                    height)
 {
-  KasasaWindow *window;
+  GtkWindow *window;
   KasasaMonitor monitor = { 0 };
   g_autoptr (GSettings) settings = NULL;
   g_autoptr (GError) error = NULL;
@@ -1765,20 +1839,20 @@ kasasa_content_container_load_first_hyprland_monitor_screencast (
       g_application_send_notification (g_application_get_default (),
                                        "io.github.kelvinnovais.Kasasa",
                                        notification);
-      gtk_window_close (GTK_WINDOW (window));
+      gtk_window_close (window);
       return;
     }
 
   settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
-  kasasa_window_reset_zoom (window);
+  host_reset_zoom (self);
   gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
   kasasa_content_container_request_window_resize (self);
-  kasasa_window_finish_initial_reveal (window);
+  host_finish_initial_reveal (self);
 
   if (g_settings_get_boolean (settings, "auto-discard-window"))
-    kasasa_window_auto_discard_window (window);
+    host_auto_discard_window (self);
 
-  kasasa_window_miniaturize_window (window, TRUE);
+  host_miniaturize_window (self, TRUE);
 }
 
 void
@@ -1787,7 +1861,7 @@ kasasa_content_container_load_first_hyprland_screencast (KasasaContentContainer 
                                                          gint                    width,
                                                          gint                    height)
 {
-  KasasaWindow *window = NULL;
+  GtkWindow *window = NULL;
   g_autoptr (GSettings) settings = NULL;
   g_autoptr (GError) error = NULL;
   g_autofree gchar *error_message = NULL;
@@ -1817,15 +1891,15 @@ kasasa_content_container_load_first_hyprland_screencast (KasasaContentContainer 
       goto FAIL;
     }
 
-  kasasa_window_reset_zoom (window);
+  host_reset_zoom (self);
   gtk_widget_set_visible (GTK_WIDGET (window), TRUE);
   kasasa_content_container_request_window_resize (self);
-  kasasa_window_finish_initial_reveal (window);
+  host_finish_initial_reveal (self);
 
   if (g_settings_get_boolean (settings, "auto-discard-window"))
-    kasasa_window_auto_discard_window (window);
+    host_auto_discard_window (self);
 
-  kasasa_window_miniaturize_window (window, TRUE);
+  host_miniaturize_window (self, TRUE);
   return;
 
 FAIL:
@@ -1837,7 +1911,7 @@ FAIL:
   g_application_send_notification (g_application_get_default (),
                                    "io.github.kelvinnovais.Kasasa",
                                    notification);
-  gtk_window_close (GTK_WINDOW (window));
+  gtk_window_close (window);
 }
 
 gboolean
@@ -1927,9 +2001,8 @@ on_mouse_enter_controls (GtkEventControllerMotion *event_controller_motion,
                         gpointer                  user_data)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
-  KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
 
-  kasasa_window_change_opacity (window, OPACITY_INCREASE);
+  host_change_opacity (self, OPACITY_INCREASE);
 }
 
 static void
@@ -1939,9 +2012,8 @@ on_mouse_leave_controls (GtkEventControllerMotion *event_controller_motion,
                         gpointer                  user_data)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
-  KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
 
-  kasasa_window_change_opacity (window, OPACITY_DECREASE);
+  host_change_opacity (self, OPACITY_DECREASE);
 }
 
 static void
@@ -1950,7 +2022,6 @@ on_page_changed (AdwCarousel *carousel,
                  gpointer     user_data)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
-  KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   GtkWidget *content = NULL;
   guint n_pages = adw_carousel_get_n_pages (carousel);
   gboolean initial_reveal;
@@ -1961,13 +2032,13 @@ on_page_changed (AdwCarousel *carousel,
   if (index == GTK_INVALID_LIST_POSITION || index >= n_pages)
     return;
 
-  initial_reveal = kasasa_window_is_initial_reveal_pending (window)
+  initial_reveal = host_is_initial_reveal_pending (self)
                    && self->current_page_index == GTK_INVALID_LIST_POSITION
                    && n_pages == 1;
   self->current_page_index = index;
 
   // Ensure that the window is visible
-  kasasa_window_change_opacity (window, OPACITY_INCREASE);
+  host_change_opacity (self, OPACITY_INCREASE);
 
   g_debug ("Resizing window for content at index %u due to page change", index);
   content = adw_carousel_get_nth_page (carousel, index);
@@ -1988,9 +2059,9 @@ on_page_changed (AdwCarousel *carousel,
                                  &new_height,
                                  &new_width);
 
-  if (self->resize_callback != NULL)
-    self->resize_callback (
-      self->resize_data,
+  if (self->host_ops.resize != NULL)
+    self->host_ops.resize (
+      self->host_data,
       (gdouble) new_height,
       (gdouble) new_width,
       (KasasaSwitchResizeMode) g_settings_get_uint (
@@ -2109,11 +2180,10 @@ on_menu_button_active (GObject    *object,
                        gpointer    user_data)
 {
   KasasaContentContainer *self = KASASA_CONTENT_CONTAINER (user_data);
-  KasasaWindow *window = kasasa_window_get_window_reference (GTK_WIDGET (self));
   gboolean active;
 
   active = gtk_menu_button_get_active (self->more_actions_button);
-  kasasa_window_set_controls_popup_active (window, active);
+  host_set_controls_popup_active (self, active);
 }
 
 
@@ -2149,7 +2219,7 @@ kasasa_content_container_dispose (GObject *object)
     g_cancellable_cancel (self->region_capture_cancellable);
   g_clear_object (&self->region_capture_cancellable);
   g_clear_object (&self->settings);
-  kasasa_content_container_set_resize_handler (self, NULL, NULL, NULL);
+  kasasa_content_container_set_host (self, NULL, NULL, NULL);
 
   /* Finishing a carousel animation during template disposal can emit
    * page-changed after the container has already been finalized. */
@@ -2211,9 +2281,9 @@ kasasa_content_container_init (KasasaContentContainer *self)
   self->delayed_screenshot_client = NULL;
   self->native_capture_ops = default_native_capture_ops;
   self->region_capture_ops = default_region_capture_ops;
-  self->resize_callback = NULL;
-  self->resize_data = NULL;
-  self->resize_data_destroy = NULL;
+  self->host_ops = (KasasaContentHostOps) { 0 };
+  self->host_data = NULL;
+  self->host_data_destroy = NULL;
   self->carousel_interaction_locks = 0;
   self->current_page_index = GTK_INVALID_LIST_POSITION;
   self->native_capture_request_pending = FALSE;

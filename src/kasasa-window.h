@@ -23,16 +23,11 @@
 
 #include <adwaita.h>
 
+#include "kasasa-content-host.h"
 #include "kasasa-window-layout.h"
 #include "kasasa-zoom.h"
 
 G_BEGIN_DECLS
-
-typedef enum
-{
-  OPACITY_INCREASE,
-  OPACITY_DECREASE
-} Opacity;
 
 #define WINDOW_HIDING_DURATION 110
 #define WINDOW_WAITING_HIDING_DURATION (2 * WINDOW_HIDING_DURATION)
@@ -53,8 +48,6 @@ typedef enum
 #define KASASA_TYPE_WINDOW (kasasa_window_get_type ())
 
 G_DECLARE_FINAL_TYPE (KasasaWindow, kasasa_window, KASASA, WINDOW, AdwApplicationWindow)
-
-typedef void (* HideWindowCallback)(gpointer);
 
 KasasaWindow * kasasa_window_get_window_reference (GtkWidget *widget);
 gboolean kasasa_window_get_trash_button_active (KasasaWindow *window);

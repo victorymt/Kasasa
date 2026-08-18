@@ -23,7 +23,7 @@
 
 #include <adwaita.h>
 
-#include "kasasa-window-layout.h"
+#include "kasasa-content-host.h"
 #include "kasasa-window-picker.h"
 
 G_BEGIN_DECLS
@@ -33,13 +33,6 @@ G_BEGIN_DECLS
 #define KASASA_TYPE_CONTENT_CONTAINER (kasasa_content_container_get_type ())
 
 G_DECLARE_FINAL_TYPE (KasasaContentContainer, kasasa_content_container, KASASA, CONTENT_CONTAINER, AdwBreakpointBin)
-
-typedef gboolean (*KasasaContentResizeFunc) (gpointer               user_data,
-                                             gdouble                new_height,
-                                             gdouble                new_width,
-                                             KasasaSwitchResizeMode mode,
-                                             gboolean               for_zoom,
-                                             gboolean               continuous);
 
 typedef struct
 {
@@ -82,9 +75,9 @@ void kasasa_content_container_set_native_capture_ops (
 void kasasa_content_container_set_region_capture_ops (
   KasasaContentContainer        *cc,
   const KasasaRegionCaptureOps  *ops);
-void kasasa_content_container_set_resize_handler (
+void kasasa_content_container_set_host (
   KasasaContentContainer *cc,
-  KasasaContentResizeFunc callback,
+  const KasasaContentHostOps *ops,
   gpointer                user_data,
   GDestroyNotify          destroy);
 void

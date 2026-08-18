@@ -803,6 +803,98 @@ on_content_resize_request (gpointer               user_data,
                                                   mode);
 }
 
+static gboolean
+content_host_is_miniaturized (gpointer user_data)
+{
+  return kasasa_window_is_miniaturized (KASASA_WINDOW (user_data));
+}
+
+static void
+content_host_hide_window (gpointer            user_data,
+                          gboolean            hide,
+                          HideWindowCallback  callback,
+                          GObject            *callback_data)
+{
+  kasasa_window_hide_window (KASASA_WINDOW (user_data),
+                             hide,
+                             callback,
+                             callback_data);
+}
+
+static void
+content_host_change_opacity (gpointer user_data,
+                             Opacity  direction)
+{
+  kasasa_window_change_opacity (KASASA_WINDOW (user_data), direction);
+}
+
+static void
+content_host_reset_zoom (gpointer user_data)
+{
+  kasasa_window_reset_zoom (KASASA_WINDOW (user_data));
+}
+
+static void
+content_host_auto_discard_window (gpointer user_data)
+{
+  kasasa_window_auto_discard_window (KASASA_WINDOW (user_data));
+}
+
+static void
+content_host_miniaturize_window (gpointer user_data,
+                                 gboolean miniaturize)
+{
+  kasasa_window_miniaturize_window (KASASA_WINDOW (user_data), miniaturize);
+}
+
+static void
+content_host_block_miniaturization (gpointer user_data,
+                                    gboolean block)
+{
+  kasasa_window_block_miniaturization (KASASA_WINDOW (user_data), block);
+}
+
+static void
+content_host_set_controls_popup_active (gpointer user_data,
+                                        gboolean active)
+{
+  kasasa_window_set_controls_popup_active (KASASA_WINDOW (user_data), active);
+}
+
+static void
+content_host_set_crop_mode (gpointer user_data,
+                            gboolean active)
+{
+  kasasa_window_set_crop_mode (KASASA_WINDOW (user_data), active);
+}
+
+static void
+content_host_finish_initial_reveal (gpointer user_data)
+{
+  kasasa_window_finish_initial_reveal (KASASA_WINDOW (user_data));
+}
+
+static gboolean
+content_host_is_initial_reveal_pending (gpointer user_data)
+{
+  return kasasa_window_is_initial_reveal_pending (KASASA_WINDOW (user_data));
+}
+
+static const KasasaContentHostOps content_host_ops = {
+  .is_miniaturized = content_host_is_miniaturized,
+  .hide_window = content_host_hide_window,
+  .change_opacity = content_host_change_opacity,
+  .resize = on_content_resize_request,
+  .reset_zoom = content_host_reset_zoom,
+  .auto_discard_window = content_host_auto_discard_window,
+  .miniaturize_window = content_host_miniaturize_window,
+  .block_miniaturization = content_host_block_miniaturization,
+  .set_controls_popup_active = content_host_set_controls_popup_active,
+  .set_crop_mode = content_host_set_crop_mode,
+  .finish_initial_reveal = content_host_finish_initial_reveal,
+  .is_initial_reveal_pending = content_host_is_initial_reveal_pending,
+};
+
 static void
 apply_pending_resize_idle (gpointer user_data)
 {
@@ -2112,10 +2204,10 @@ kasasa_window_init (KasasaWindow *self)
 
   gtk_widget_init_template (GTK_WIDGET (self));
 
-  kasasa_content_container_set_resize_handler (self->content_container,
-                                               on_content_resize_request,
-                                               self,
-                                               NULL);
+  kasasa_content_container_set_host (self->content_container,
+                                     &content_host_ops,
+                                     self,
+                                     NULL);
 
   // Initialize self variables
   self->settings = g_settings_new ("io.github.kelvinnovais.Kasasa");
